@@ -224,24 +224,6 @@ pytest tests/ --cov=src --cov-report=term-missing
 pytest tests/unit/test_trading.py -v
 ```
 
-Test coverage spans all major components: config, models, weather client, Polymarket client, prediction engine, regime classifier, calibration, trading engine, verification, orchestrator, and API.
-
-## Validation Strategy
-
-The system uses a two-track validation approach:
-
-- **Option C (Weather-only backtest)** for H0-1 through H0-3: Historical NWP archives (NOAA NOMADS for GFS, AWS Open Data for ECMWF) matched against METAR observations. Validates forecast skill without market data.
-
-- **Option A (Forward-only paper trading)** for H0-4: Collect (forecast, market price, outcome) triples from day one. Test market edge significance after sufficient sample size (~500-1000 independent bets, estimated 8-16 months at ~2 trades/day).
-
-This separation is necessary because Polymarket's historical price data degrades to 12h granularity for resolved markets, making retrospective market edge testing unreliable.
-
-## Realistic Expectations
-
-At $300 starting capital with conservative sizing:
-- ~$0.15-0.30/day expected profit (2 filled trades, ~$3 avg, 3-5% edge)
-- 15-50% annualized return (excellent percentage, tiny absolute numbers)
-- This is a scientific research project, not a revenue stream at this scale
 
 ## License
 
