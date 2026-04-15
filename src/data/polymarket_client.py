@@ -235,6 +235,52 @@ class GammaClient:
         return contracts
 
 
+    async def fetch_market_resolution(self, condition_id: str) -> bool | None:
+        """Check if a market has resolved and return the YES outcome.
+
+        Queries the Gamma API /markets endpoint by condition_id.
+        Returns True if YES won, False if NO won, None if not yet resolved.
+        """
+        try:
+            resp = await self.client.get(
+                "/markets", params={"condition_id": condition_id}
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Gamma resolution check failed for %s: %s", condition_id, exc)
+            return None
+
+        markets = resp.json()
+        if not markets:
+            return None
+
+        market = markets[0] if isinstance(markets, list) else markets
+        if not market.get("closed"):
+            return None
+
+        # Polymarket resolves to a winning token.  The 'winner' field
+        # contains the winning token_id, or 'resolved_to' / 'resolution'
+        # contains "Yes"/"No".
+        winner = market.get("winner")
+        if winner is not None:
+            # winner is the token_id that won — compare to clobTokenIds
+            token_ids_raw = market.get("clobTokenIds", "[]")
+            try:
+                token_ids = json.loads(token_ids_raw)
+            except (json.JSONDecodeError, TypeError):
+                token_ids = []
+            if token_ids:
+                # First token is YES
+                return winner == token_ids[0]
+
+        # Fallback: check resolution field
+        resolution = market.get("resolution", market.get("resolved_to", ""))
+        if resolution:
+            return str(resolution).lower() in ("yes", "true", "1")
+
+        return None
+
+
 class CLOBClient:
     """Wrapper around py-clob-client for order management."""
 

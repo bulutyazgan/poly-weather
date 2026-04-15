@@ -18,6 +18,7 @@ from src.trading.position_sizer import PositionSizer
 from src.trading.executor import OrderExecutor
 from src.verification.prediction_log import PredictionLog
 from src.verification.paper_trader import PaperTrader
+from src.verification.resolution_checker import ResolutionChecker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -77,7 +78,8 @@ async def main():
         cusum=cusum,
     )
 
-    scheduler = PipelineScheduler(pipeline=pipeline)
+    resolution_checker = ResolutionChecker(gamma=gamma, paper_trader=paper_trader)
+    scheduler = PipelineScheduler(pipeline=pipeline, resolution_checker=resolution_checker)
 
     # Set API state
     from src.api.main import set_state

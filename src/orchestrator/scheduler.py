@@ -6,6 +6,7 @@ import logging
 from datetime import datetime, time as dt_time, timedelta, timezone
 
 from src.orchestrator.pipeline import TradingPipeline
+from src.verification.resolution_checker import ResolutionChecker
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,15 @@ class PipelineScheduler:
         dt_time(18, 0),   # ~6h after 12Z init
     ]
     MORNING_REFINEMENT = dt_time(14, 30)  # After 12Z HRRR available
+    RESOLUTION_CHECK = dt_time(2, 0)  # 02:00 UTC — after overnight settlement
 
-    def __init__(self, pipeline: TradingPipeline) -> None:
+    def __init__(
+        self,
+        pipeline: TradingPipeline,
+        resolution_checker: ResolutionChecker | None = None,
+    ) -> None:
         self.pipeline = pipeline
+        self._resolution_checker = resolution_checker
         self._events: list[dict] = self._build_events()
         self._running = False
         self._task: asyncio.Task | None = None
@@ -59,6 +66,13 @@ class PipelineScheduler:
             "description": "Same-day refinement after 12Z HRRR available",
         })
 
+        if self._resolution_checker is not None:
+            events.append({
+                "time": self.RESOLUTION_CHECK,
+                "event_type": "resolution_check",
+                "description": "Check resolved markets and compute PnL",
+            })
+
         return events
 
     def get_scheduled_events(self) -> list[dict]:
@@ -82,9 +96,14 @@ class PipelineScheduler:
         return (today_target - now).total_seconds()
 
     async def run_event(self, event_type: str, **kwargs) -> dict:
-        """Execute a scheduled event by running a pipeline cycle."""
+        """Execute a scheduled event."""
         logger.info("Running scheduled event: %s", event_type)
-        result = await self.pipeline.run_cycle(**kwargs)
+
+        if event_type == "resolution_check" and self._resolution_checker is not None:
+            result = await self._resolution_checker.check_resolutions()
+        else:
+            result = await self.pipeline.run_cycle(**kwargs)
+
         logger.info("Event %s complete: %s", event_type, result)
         return result
 
