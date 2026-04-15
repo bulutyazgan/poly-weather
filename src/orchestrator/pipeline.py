@@ -108,13 +108,19 @@ class TradingPipeline:
                 logger.warning("No snapshot for station %s", station.station_id)
                 continue
 
-            # Classify regime
+            # Classify regime — pass station flags and ensemble members
+            # so physical flag detectors (chinook, bimodal, etc.) are active
             try:
                 ensemble_spread = snap.gfs_ensemble.std if snap.gfs_ensemble else 4.0
+                ensemble_members = (
+                    snap.gfs_ensemble.members if snap.gfs_ensemble else None
+                )
                 regime = self._regime_classifier.classify(
                     station_id=station.station_id,
                     valid_date=now.date(),
                     ensemble_spread=ensemble_spread,
+                    ensemble_members=ensemble_members,
+                    station_flags=station.flags,
                 )
             except Exception:
                 logger.exception("Regime classification failed for %s", station.station_id)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -10,6 +11,7 @@ from src.data.models import EnsembleForecast, HRRRForecast, TradingSignal
 from src.orchestrator.data_collector import DataSnapshot
 from src.orchestrator.pipeline import _synthesize_mos
 from src.prediction.calibration import CUSUMMonitor
+from src.prediction.regime_classifier import RegimeClassifier
 
 
 def _make_station() -> Station:
@@ -177,3 +179,61 @@ class TestCUSUMResidual:
             residual = 0.55 - 0.70  # model consistently lower
             cusum.update(residual)
         assert cusum.alarm is True
+
+
+class TestRegimeClassifierWiring:
+    """Verify pipeline passes station_flags and ensemble_members to classifier."""
+
+    def test_station_flags_passed_to_classifier(self):
+        """Station flags (e.g. chinook) must reach the regime classifier.
+
+        Denver has flags=["chinook", "high_elevation"]. If the pipeline
+        doesn't pass these, chinook wind detection is dead code.
+        """
+        classifier = RegimeClassifier()
+        station = Station(
+            station_id="KDEN",
+            city="Denver",
+            lat=39.86,
+            lon=-104.67,
+            elevation_ft=5431,
+            model_grid_elevation_ft=5200,
+            flags=["chinook", "high_elevation"],
+        )
+        # Call with chinook conditions: strong W/NW 700mb wind
+        result = classifier.classify(
+            station_id=station.station_id,
+            valid_date=datetime(2026, 4, 16).date(),
+            ensemble_spread=1.0,
+            station_flags=station.flags,
+            wind_700mb_speed=35.0,
+            wind_700mb_direction=280.0,
+        )
+        assert "chinook" in result.active_flags
+        assert result.confidence == "HIGH"
+
+    def test_station_flags_not_passed_misses_chinook(self):
+        """Without station_flags, chinook is never detected even with wind conditions."""
+        classifier = RegimeClassifier()
+        result = classifier.classify(
+            station_id="KDEN",
+            valid_date=datetime(2026, 4, 16).date(),
+            ensemble_spread=1.0,
+            # station_flags NOT passed — defaults to []
+            wind_700mb_speed=35.0,
+            wind_700mb_direction=280.0,
+        )
+        assert "chinook" not in result.active_flags
+
+    def test_ensemble_members_enable_bimodal_detection(self):
+        """Passing ensemble_members enables bimodal detection (two-cluster spread)."""
+        classifier = RegimeClassifier()
+        # Create clearly bimodal ensemble: two clusters separated by large gap
+        bimodal_members = [60.0, 61.0, 62.0, 63.0, 80.0, 81.0, 82.0, 83.0]
+        result = classifier.classify(
+            station_id="KNYC",
+            valid_date=datetime(2026, 4, 16).date(),
+            ensemble_spread=8.0,
+            ensemble_members=bimodal_members,
+        )
+        assert "bimodal_ensemble" in result.active_flags
