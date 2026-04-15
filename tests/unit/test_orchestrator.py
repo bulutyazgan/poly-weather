@@ -405,3 +405,115 @@ class TestPipelineScheduler:
         refinement_events = [e for e in events if e["event_type"] == "morning_refinement"]
         assert len(refinement_events) == 1
         assert refinement_events[0]["time"] == dt_time(14, 30)
+
+    def test_get_sorted_times_returns_chronological_order(self):
+        """Sorted times should be in ascending chronological order."""
+        pipeline = MagicMock()
+        scheduler = PipelineScheduler(pipeline=pipeline)
+        sorted_times = scheduler._get_sorted_times()
+
+        times_only = [t for t, _ in sorted_times]
+        assert times_only == sorted(times_only)
+        # Should have 7 events total (4 GFS + 2 ECMWF + 1 refinement)
+        assert len(sorted_times) == 7
+
+    def test_seconds_until_future_time(self):
+        """_seconds_until returns positive seconds for a future time today."""
+        pipeline = MagicMock()
+        scheduler = PipelineScheduler(pipeline=pipeline)
+
+        # Mock "now" to 10:00 UTC, target 14:30 UTC -> 4.5 hours = 16200s
+        mock_now = datetime(2026, 4, 15, 10, 0, 0, tzinfo=timezone.utc)
+        with patch("src.orchestrator.scheduler.datetime") as mock_dt:
+            mock_dt.now.return_value = mock_now
+            mock_dt.combine = datetime.combine
+            seconds = scheduler._seconds_until(dt_time(14, 30))
+
+        assert abs(seconds - 16200.0) < 1.0
+
+    def test_seconds_until_past_time_wraps_to_tomorrow(self):
+        """_seconds_until wraps to next day for a time that already passed today."""
+        pipeline = MagicMock()
+        scheduler = PipelineScheduler(pipeline=pipeline)
+
+        # Mock "now" to 15:00 UTC, target 14:30 UTC -> should be ~23.5h until tomorrow
+        mock_now = datetime(2026, 4, 15, 15, 0, 0, tzinfo=timezone.utc)
+        with patch("src.orchestrator.scheduler.datetime") as mock_dt:
+            mock_dt.now.return_value = mock_now
+            mock_dt.combine = datetime.combine
+            seconds = scheduler._seconds_until(dt_time(14, 30))
+
+        expected = 23.5 * 3600  # 23.5 hours
+        assert abs(seconds - expected) < 1.0
+
+    async def test_run_event_delegates_to_pipeline(self):
+        """run_event calls pipeline.run_cycle and returns its result."""
+        pipeline = MagicMock()
+        pipeline.run_cycle = AsyncMock(return_value={
+            "signals_generated": 5, "trades_placed": 1, "skips": 4, "errors": 0
+        })
+        scheduler = PipelineScheduler(pipeline=pipeline)
+
+        result = await scheduler.run_event("gfs_update", bankroll=300.0)
+
+        pipeline.run_cycle.assert_called_once_with(bankroll=300.0)
+        assert result["signals_generated"] == 5
+        assert result["trades_placed"] == 1
+
+    async def test_start_and_stop(self):
+        """start() creates a background task, stop() cancels it."""
+        pipeline = MagicMock()
+        pipeline.run_cycle = AsyncMock(return_value={
+            "signals_generated": 0, "trades_placed": 0, "skips": 0, "errors": 0
+        })
+        scheduler = PipelineScheduler(pipeline=pipeline)
+
+        await scheduler.start(bankroll=300.0)
+        assert scheduler._running is True
+        assert scheduler._task is not None
+
+        await scheduler.stop()
+        assert scheduler._running is False
+        assert scheduler._task is None
+
+    async def test_loop_runs_event_on_schedule(self):
+        """_loop sleeps until next event then runs pipeline."""
+        pipeline = MagicMock()
+        pipeline.run_cycle = AsyncMock(return_value={
+            "signals_generated": 1, "trades_placed": 0, "skips": 1, "errors": 0
+        })
+        scheduler = PipelineScheduler(pipeline=pipeline)
+
+        call_count = 0
+
+        async def fake_sleep(seconds):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                scheduler._running = False
+
+        with patch("asyncio.sleep", side_effect=fake_sleep):
+            scheduler._running = True
+            await scheduler._loop(bankroll=300.0)
+
+        # Pipeline should have been called at least once
+        assert pipeline.run_cycle.call_count >= 1
+
+    async def test_loop_handles_pipeline_exception(self):
+        """_loop logs but doesn't crash when pipeline raises."""
+        pipeline = MagicMock()
+        pipeline.run_cycle = AsyncMock(side_effect=RuntimeError("API down"))
+        scheduler = PipelineScheduler(pipeline=pipeline)
+
+        call_count = 0
+
+        async def fake_sleep(seconds):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                scheduler._running = False
+
+        with patch("asyncio.sleep", side_effect=fake_sleep):
+            scheduler._running = True
+            # Should not raise
+            await scheduler._loop(bankroll=300.0)
