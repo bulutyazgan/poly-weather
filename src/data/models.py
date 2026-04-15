@@ -81,6 +81,11 @@ class MarketContract(BaseModel):
     temp_bucket_high: float  # upper bound (Fahrenheit)
     outcome: Literal["Yes", "No"]
     volume_24h: float = 0.0  # real traded volume from Gamma API
+    # Gamma API provides aggregated best prices (more reliable than raw CLOB book)
+    gamma_best_bid: float | None = None
+    gamma_best_ask: float | None = None
+    gamma_outcome_price: float | None = None  # YES outcome price from outcomePrices
+    gamma_last_trade: float | None = None
 
 
 class MarketPrice(BaseModel):

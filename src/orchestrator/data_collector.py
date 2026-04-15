@@ -14,6 +14,8 @@ from src.data.models import (
     MarketPrice,
     Observation,
 )
+
+_WIDE_SPREAD_THRESHOLD = 0.50  # spreads wider than this are unusable
 from src.data.weather_client import OpenMeteoClient, MesonetClient
 from src.data.polymarket_client import GammaClient, CLOBClient
 
@@ -105,7 +107,29 @@ class DataCollector:
             city_contracts = [c for c in all_contracts if c.city == city]
             snap.market_contracts = city_contracts
 
-            # Fetch prices concurrently (both YES and NO tokens)
+            # Build prices from Gamma API data first (reliable aggregated prices).
+            # Fall back to CLOB order book only for tokens where Gamma has no price.
+            clob_needed: list[str] = []
+            for c in city_contracts:
+                gamma_price = _gamma_market_price(c, now)
+                if gamma_price is not None:
+                    snap.market_prices[c.token_id] = gamma_price
+                    # Build a synthetic NO-token price from the YES price
+                    if c.no_token_id:
+                        snap.market_prices[c.no_token_id] = MarketPrice(
+                            token_id=c.no_token_id,
+                            timestamp=now,
+                            bid=max(0.0, 1.0 - gamma_price.ask),
+                            ask=min(1.0, 1.0 - gamma_price.bid),
+                            mid=1.0 - gamma_price.mid,
+                            volume_24h=gamma_price.volume_24h,
+                        )
+                else:
+                    clob_needed.append(c.token_id)
+                    if c.no_token_id:
+                        clob_needed.append(c.no_token_id)
+
+            # CLOB fallback for any tokens missing Gamma prices
             async def _fetch_price(token_id: str):
                 if not token_id:
                     return
@@ -116,13 +140,8 @@ class DataCollector:
                 except Exception:
                     logger.exception("Price fetch failed for %s", token_id)
 
-            if city_contracts:
-                token_ids = []
-                for c in city_contracts:
-                    token_ids.append(c.token_id)
-                    if c.no_token_id:
-                        token_ids.append(c.no_token_id)
-                await asyncio.gather(*[_fetch_price(tid) for tid in token_ids])
+            if clob_needed:
+                await asyncio.gather(*[_fetch_price(tid) for tid in clob_needed])
 
             return snap
 
@@ -163,6 +182,46 @@ class DataCollector:
                     "actual_outcome": self._outcomes[token_id],
                 })
         return records
+
+
+def _gamma_market_price(contract: MarketContract, now: datetime) -> MarketPrice | None:
+    """Build a MarketPrice from Gamma API fields embedded in the contract.
+
+    Gamma provides aggregated ``bestBid``, ``bestAsk``, and ``outcomePrices``
+    which are far more reliable than the raw CLOB order book (often nearly
+    empty for weather markets).  Returns None only if Gamma had no price at
+    all, in which case the caller should fall back to the CLOB book.
+    """
+    bid = contract.gamma_best_bid
+    ask = contract.gamma_best_ask
+    outcome_price = contract.gamma_outcome_price
+
+    # Need at least *some* price signal
+    if bid is None and ask is None and outcome_price is None:
+        return None
+
+    # Derive best available bid/ask/mid
+    if bid is not None and ask is not None:
+        mid = (bid + ask) / 2.0
+    elif outcome_price is not None:
+        mid = outcome_price
+        # Approximate bid/ask from outcome price when only one side exists
+        bid = bid if bid is not None else max(0.0, mid - 0.01)
+        ask = ask if ask is not None else min(1.0, mid + 0.01)
+    else:
+        # Only one side available
+        mid = bid if bid is not None else ask  # type: ignore[assignment]
+        bid = bid if bid is not None else max(0.0, mid - 0.01)
+        ask = ask if ask is not None else min(1.0, mid + 0.01)
+
+    return MarketPrice(
+        token_id=contract.token_id,
+        timestamp=now,
+        bid=bid,
+        ask=ask,
+        mid=mid,
+        volume_24h=contract.volume_24h,
+    )
 
 
 def _pick_daily_forecast(

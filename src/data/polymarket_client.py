@@ -55,6 +55,16 @@ _BUCKET_OR_BELOW = re.compile(r"(\d+)°F or below")
 _BUCKET_OR_HIGHER = re.compile(r"(\d+)°F or higher")
 
 
+def _safe_float(val: object) -> float | None:
+    """Convert a value to float, returning None on failure."""
+    if val is None:
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
 def _lazy_import_clob_client():
     """Lazy import to avoid importing py_clob_client unless needed."""
     from py_clob_client.client import ClobClient as _ClobClient
@@ -198,12 +208,28 @@ class GammaClient:
             no_token_id = token_ids[1] if len(token_ids) > 1 else ""
             condition_id = market.get("conditionId", "")
             question = market.get("question", label)
-            # Gamma API provides real traded volume (not book depth)
-            volume_str = market.get("volume", "0")
+            # Prefer 24h volume; fall back to total volume
+            volume_str = market.get("volume24hr", market.get("volume", "0"))
             try:
                 volume_24h = float(volume_str)
             except (ValueError, TypeError):
                 volume_24h = 0.0
+
+            # Extract Gamma-aggregated prices (far more reliable than raw CLOB book)
+            gamma_best_bid = _safe_float(market.get("bestBid"))
+            gamma_best_ask = _safe_float(market.get("bestAsk"))
+            gamma_last_trade = _safe_float(market.get("lastTradePrice"))
+            gamma_outcome_price: float | None = None
+            outcome_prices_raw = market.get("outcomePrices")
+            if outcome_prices_raw:
+                try:
+                    prices_list = json.loads(outcome_prices_raw) if isinstance(
+                        outcome_prices_raw, str
+                    ) else outcome_prices_raw
+                    if prices_list:
+                        gamma_outcome_price = float(prices_list[0])
+                except (json.JSONDecodeError, TypeError, ValueError, IndexError):
+                    pass
 
             # Parse exact resolution time from Gamma endDate
             end_date_utc = None
@@ -229,6 +255,10 @@ class GammaClient:
                     temp_bucket_high=bucket[1],
                     outcome="Yes",
                     volume_24h=volume_24h,
+                    gamma_best_bid=gamma_best_bid,
+                    gamma_best_ask=gamma_best_ask,
+                    gamma_outcome_price=gamma_outcome_price,
+                    gamma_last_trade=gamma_last_trade,
                 )
             )
 
