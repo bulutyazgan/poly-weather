@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from src.config.stations import get_station, get_stations
-from src.prediction.calibration import BrierScore, ReliabilityDiagram
+from src.prediction.calibration import BrierScore, CUSUMMonitor, ReliabilityDiagram
 from src.trading.executor import OrderExecutor
 from src.verification.paper_trader import PaperTrader
 from src.verification.prediction_log import PredictionLog
@@ -39,6 +39,7 @@ _prediction_log: PredictionLog | None = None
 _paper_trader: PaperTrader | None = None
 _scheduler: PipelineScheduler | None = None
 _executor: OrderExecutor | None = None
+_cusum: CUSUMMonitor | None = None
 
 
 def set_state(
@@ -46,13 +47,15 @@ def set_state(
     trader: PaperTrader | None,
     scheduler: PipelineScheduler | None,
     executor: OrderExecutor | None = None,
+    cusum: CUSUMMonitor | None = None,
 ) -> None:
     """Inject shared state (called from main.py startup or tests)."""
-    global _prediction_log, _paper_trader, _scheduler, _executor
+    global _prediction_log, _paper_trader, _scheduler, _executor, _cusum
     _prediction_log = log
     _paper_trader = trader
     _scheduler = scheduler
     _executor = executor
+    _cusum = cusum
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +153,24 @@ async def list_trades(status: str | None = None, limit: int = 100):
     trades = trades[-limit:][::-1]
 
     return [_trade_to_dict(t) for t in trades]
+
+
+@app.get("/api/cusum")
+async def get_cusum():
+    """Return CUSUM monitor state for model degradation tracking."""
+    if not _cusum:
+        return {"alarm": False, "cusum_pos": 0.0, "cusum_neg": 0.0, "threshold": 2.0, "pct_of_threshold": 0.0}
+
+    peak = max(_cusum.cusum_pos, _cusum.cusum_neg)
+    pct = (peak / _cusum.threshold * 100) if _cusum.threshold > 0 else 0.0
+
+    return {
+        "alarm": _cusum.alarm,
+        "cusum_pos": round(_cusum.cusum_pos, 4),
+        "cusum_neg": round(_cusum.cusum_neg, 4),
+        "threshold": _cusum.threshold,
+        "pct_of_threshold": round(pct, 1),
+    }
 
 
 @app.get("/api/calibration")

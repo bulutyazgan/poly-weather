@@ -292,6 +292,65 @@ async def test_get_trades_filter_pending():
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("_empty_state")
+async def test_get_cusum_no_state():
+    """CUSUM endpoint returns defaults when no monitor is set."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/cusum")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["alarm"] is False
+    assert data["cusum_pos"] == 0.0
+    assert data["pct_of_threshold"] == 0.0
+
+
+@pytest.mark.anyio
+async def test_get_cusum_with_state():
+    """CUSUM endpoint returns live monitor state."""
+    from src.api.main import app, set_state
+    from src.prediction.calibration import CUSUMMonitor
+
+    monitor = CUSUMMonitor(threshold=2.0)
+    monitor.update(0.8)  # cusum_pos = 0.8
+    monitor.update(0.6)  # cusum_pos = 1.4
+
+    set_state(None, None, None, cusum=monitor)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/cusum")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["alarm"] is False
+        assert data["cusum_pos"] == 1.4
+        assert data["threshold"] == 2.0
+        assert data["pct_of_threshold"] == 70.0
+    finally:
+        set_state(None, None, None)
+
+
+@pytest.mark.anyio
+async def test_get_cusum_alarm():
+    """CUSUM endpoint reports alarm when threshold exceeded."""
+    from src.api.main import app, set_state
+    from src.prediction.calibration import CUSUMMonitor
+
+    monitor = CUSUMMonitor(threshold=1.0)
+    monitor.update(1.5)  # cusum_pos = 1.5 > 1.0 → alarm
+
+    set_state(None, None, None, cusum=monitor)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/cusum")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["alarm"] is True
+        assert data["pct_of_threshold"] == 150.0
+    finally:
+        set_state(None, None, None)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_empty_state")
 async def test_get_trades_empty():
     """Trades endpoint returns empty list when no state is set."""
     from src.api.main import app

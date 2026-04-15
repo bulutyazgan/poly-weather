@@ -4,10 +4,11 @@ import { PerformanceCard } from "./components/PerformanceCard";
 import { StationList } from "./components/StationList";
 import { SignalTable } from "./components/SignalTable";
 import { CalibrationChart } from "./components/CalibrationChart";
+import { CusumIndicator } from "./components/CusumIndicator";
 import { ScheduleView } from "./components/ScheduleView";
 import { StatusBar } from "./components/StatusBar";
 import { TradeTable } from "./components/TradeTable";
-import type { Calibration, Performance, ScheduleEvent, Signal, Station, Trade } from "./types";
+import type { Calibration, CusumStatus, Performance, ScheduleEvent, Signal, Station, Trade } from "./types";
 import "./App.css";
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
   const performance = useApi<Performance>("/api/performance", 15000);
   const stations = useApi<Station[]>("/api/stations", 60000);
   const calibration = useApi<Calibration>("/api/calibration", 30000);
+  const cusum = useApi<CusumStatus>("/api/cusum", 15000);
   const schedule = useApi<ScheduleEvent[]>("/api/schedule", 60000);
 
   const trades = useApi<Trade[]>("/api/trades?limit=50", 15000);
@@ -39,7 +41,10 @@ function App() {
 
       <main>
         <div className="top-row">
-          <PerformanceCard data={performance.data} loading={performance.loading} />
+          <div>
+            <PerformanceCard data={performance.data} loading={performance.loading} />
+            <CusumIndicator data={cusum.data} loading={cusum.loading} />
+          </div>
           <CalibrationChart data={calibration.data} loading={calibration.loading} />
         </div>
 

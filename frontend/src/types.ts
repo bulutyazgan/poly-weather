@@ -50,6 +50,14 @@ export interface Trade {
   pnl: number | null;
 }
 
+export interface CusumStatus {
+  alarm: boolean;
+  cusum_pos: number;
+  cusum_neg: number;
+  threshold: number;
+  pct_of_threshold: number;
+}
+
 export interface ScheduleEvent {
   time: string;
   event_type: string;
