@@ -185,6 +185,10 @@ class CUSUMMonitor:
         cusum_pos = max(0, cusum_pos + residual - drift)
         cusum_neg = max(0, cusum_neg - residual - drift)
         alarm if cusum_pos > threshold or cusum_neg > threshold
+
+        Once alarm triggers it stays True (sticky) until the caller
+        calls ``reset()``.  This lets the pipeline block an entire
+        cycle then reset to allow recovery.
         """
         self.cusum_pos = max(0.0, self.cusum_pos + residual - self.drift)
         self.cusum_neg = max(0.0, self.cusum_neg - residual - self.drift)

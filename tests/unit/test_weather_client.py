@@ -28,7 +28,8 @@ def nyc_station() -> Station:
     )
 
 
-OPEN_METEO_BASE = "https://api.open-meteo.com/v1"
+OPEN_METEO_FORECAST_BASE = "https://api.open-meteo.com/v1"
+OPEN_METEO_ENSEMBLE_BASE = "https://ensemble-api.open-meteo.com/v1"
 MESONET_BASE = "https://mesonet.agron.iastate.edu/api/1"
 
 
@@ -47,11 +48,11 @@ async def test_fetch_ensemble_gfs(nyc_station: Station) -> None:
 
     payload = {"hourly": hourly}
 
-    respx.get(f"{OPEN_METEO_BASE}/ensemble").mock(
+    respx.get(f"{OPEN_METEO_ENSEMBLE_BASE}/ensemble").mock(
         return_value=httpx.Response(200, json=payload)
     )
 
-    client = OpenMeteoClient(base_url=OPEN_METEO_BASE)
+    client = OpenMeteoClient(forecast_url=OPEN_METEO_FORECAST_BASE, ensemble_url=OPEN_METEO_ENSEMBLE_BASE)
     async with client:
         results = await client.fetch_ensemble(nyc_station, model="gfs")
 
@@ -79,11 +80,11 @@ async def test_fetch_ensemble_ecmwf(nyc_station: Station) -> None:
 
     payload = {"hourly": hourly}
 
-    respx.get(f"{OPEN_METEO_BASE}/ensemble").mock(
+    respx.get(f"{OPEN_METEO_ENSEMBLE_BASE}/ensemble").mock(
         return_value=httpx.Response(200, json=payload)
     )
 
-    client = OpenMeteoClient(base_url=OPEN_METEO_BASE)
+    client = OpenMeteoClient(forecast_url=OPEN_METEO_FORECAST_BASE, ensemble_url=OPEN_METEO_ENSEMBLE_BASE)
     async with client:
         results = await client.fetch_ensemble(nyc_station, model="ecmwf")
 
@@ -111,11 +112,11 @@ async def test_fetch_hrrr(nyc_station: Station) -> None:
         }
     }
 
-    respx.get(f"{OPEN_METEO_BASE}/forecast").mock(
+    respx.get(f"{OPEN_METEO_FORECAST_BASE}/gfs").mock(
         return_value=httpx.Response(200, json=payload)
     )
 
-    client = OpenMeteoClient(base_url=OPEN_METEO_BASE)
+    client = OpenMeteoClient(forecast_url=OPEN_METEO_FORECAST_BASE, ensemble_url=OPEN_METEO_ENSEMBLE_BASE)
     async with client:
         results = await client.fetch_hrrr(nyc_station)
 
@@ -137,11 +138,11 @@ async def test_fetch_hrrr(nyc_station: Station) -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_fetch_ensemble_empty_response(nyc_station: Station) -> None:
-    respx.get(f"{OPEN_METEO_BASE}/ensemble").mock(
+    respx.get(f"{OPEN_METEO_ENSEMBLE_BASE}/ensemble").mock(
         return_value=httpx.Response(500, text="Internal Server Error")
     )
 
-    client = OpenMeteoClient(base_url=OPEN_METEO_BASE)
+    client = OpenMeteoClient(forecast_url=OPEN_METEO_FORECAST_BASE, ensemble_url=OPEN_METEO_ENSEMBLE_BASE)
     async with client:
         results = await client.fetch_ensemble(nyc_station, model="gfs")
 

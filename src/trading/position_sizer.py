@@ -1,6 +1,10 @@
 """Position sizing using fractional Kelly criterion."""
 from __future__ import annotations
 
+# Discount table for simultaneous TRADE signals across correlated stations
+_CORRELATION_DISCOUNTS: dict[int, float] = {1: 1.0, 2: 0.7, 3: 0.5}
+_CORRELATION_DISCOUNT_4_PLUS = 0.4
+
 
 class PositionSizer:
     """Compute position size in USD using fractional Kelly with caps."""
@@ -25,6 +29,7 @@ class PositionSizer:
         current_exposure: float = 0.0,
         ensemble_spread_pctile: float = 50.0,
         direction: str = "BUY_YES",
+        active_station_count: int = 1,
     ) -> float:
         """Compute position size in USD.
 
@@ -62,6 +67,12 @@ class PositionSizer:
             raw_size *= 1.2
         elif ensemble_spread_pctile > 50:
             raw_size *= 0.8
+
+        # Correlation discount when multiple stations are trading simultaneously
+        if active_station_count >= 4:
+            raw_size *= _CORRELATION_DISCOUNT_4_PLUS
+        else:
+            raw_size *= _CORRELATION_DISCOUNTS.get(active_station_count, 1.0)
 
         # Apply caps
         remaining_exposure = self.max_portfolio_exposure * bankroll - current_exposure

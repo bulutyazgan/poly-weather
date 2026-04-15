@@ -81,9 +81,13 @@ class TradingPipeline:
         stations = get_stations()
 
         # -- Check CUSUM alarm at the TOP of the cycle -----------------------
+        # If alarm fired during a previous cycle, block this cycle's trades
+        # then reset so CUSUM starts fresh.  If degradation continues,
+        # alarm re-triggers quickly; if model recovered, trading resumes.
         cusum_blocked = self._cusum is not None and self._cusum.alarm
         if cusum_blocked:
             logger.warning("CUSUM alarm active — all trades blocked this cycle")
+            self._cusum.reset()
 
         # -- 1. Collect latest data ------------------------------------------
         try:

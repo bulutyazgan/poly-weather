@@ -229,22 +229,39 @@ class TestCUSUMMonitor:
         assert alarm_triggered
         assert monitor.alarm
 
-    def test_cusum_reset_after_alarm(self):
-        """After alarm and reset, counter starts fresh."""
+    def test_cusum_alarm_sticky_until_reset(self):
+        """Alarm stays True (sticky) until explicit reset().
+
+        This allows the pipeline to see the alarm at the start of the
+        next cycle, block trades, then reset.
+        """
         monitor = CUSUMMonitor(threshold=2.0, drift=0.0)
-        # Trigger alarm
         for _ in range(10):
             monitor.update(1.0)
-        assert monitor.alarm
+        assert monitor.alarm  # sticky
 
+        # Small residuals don't clear it
+        for _ in range(5):
+            monitor.update(0.01)
+        assert monitor.alarm  # still sticky
+
+        # Explicit reset clears everything
         monitor.reset()
         assert not monitor.alarm
         assert monitor.cusum_pos == 0.0
         assert monitor.cusum_neg == 0.0
 
-        # Small residuals should not trigger alarm
+    def test_cusum_recovers_after_reset(self):
+        """After reset, small residuals don't re-trigger alarm."""
+        monitor = CUSUMMonitor(threshold=2.0, drift=0.0)
         for _ in range(5):
-            monitor.update(0.1)
+            monitor.update(1.0)
+        assert monitor.alarm
+
+        monitor.reset()
+        # Good residuals after reset — alarm should NOT re-trigger
+        for _ in range(20):
+            monitor.update(0.02)
         assert not monitor.alarm
 
     def test_cusum_threshold_sensitivity(self):

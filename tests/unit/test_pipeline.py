@@ -182,6 +182,40 @@ class TestCUSUMResidual:
         assert cusum.alarm is True
 
 
+    def test_cusum_alarm_resets_after_blocking_cycle(self):
+        """Pipeline resets CUSUM after using alarm to block trades.
+
+        Bug: alarm was sticky forever — once triggered, bot never traded again.
+        Fix: pipeline calls cusum.reset() after blocking a cycle, so if the
+        model recovers, trading resumes next cycle.
+
+        Cycle flow:
+          1. Bad residuals trigger alarm mid-cycle → alarm=True
+          2. Next cycle: pipeline sees alarm → blocks trades → resets CUSUM
+          3. Good residuals during blocked cycle → alarm stays False
+          4. Next cycle: alarm=False → trading resumes
+        """
+        cusum = CUSUMMonitor(threshold=0.5, drift=0.0)
+
+        # Simulate bad cycle: alarm triggers
+        for _ in range(5):
+            cusum.update(0.15)
+        assert cusum.alarm is True
+
+        # Pipeline would check alarm at top of next cycle, then reset
+        blocked = cusum.alarm
+        assert blocked is True
+        cusum.reset()  # this is what pipeline.run_cycle now does
+
+        # Good residuals during the blocked cycle
+        for _ in range(5):
+            cusum.update(0.02)
+        assert cusum.alarm is False  # model recovered
+
+        # Next cycle: alarm is clear, trading resumes
+        assert cusum.alarm is False
+
+
 class TestRegimeClassifierWiring:
     """Verify pipeline passes station_flags and ensemble_members to classifier."""
 
