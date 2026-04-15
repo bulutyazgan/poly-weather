@@ -6,8 +6,6 @@ for each trade whose market has settled.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-
 from src.data.polymarket_client import GammaClient
 from src.verification.paper_trader import PaperTrader
 
