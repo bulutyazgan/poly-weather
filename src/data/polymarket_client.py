@@ -166,6 +166,12 @@ class GammaClient:
             no_token_id = token_ids[1] if len(token_ids) > 1 else ""
             condition_id = market.get("conditionId", "")
             question = market.get("question", label)
+            # Gamma API provides real traded volume (not book depth)
+            volume_str = market.get("volume", "0")
+            try:
+                volume_24h = float(volume_str)
+            except (ValueError, TypeError):
+                volume_24h = 0.0
 
             contracts.append(
                 MarketContract(
@@ -178,6 +184,7 @@ class GammaClient:
                     temp_bucket_low=bucket[0],
                     temp_bucket_high=bucket[1],
                     outcome="Yes",
+                    volume_24h=volume_24h,
                 )
             )
 
@@ -221,8 +228,9 @@ class CLOBClient:
         best_ask = float(asks[0]["price"])
         mid = (best_bid + best_ask) / 2.0
 
-        # Sum volume for 24h approximation (using book depth as proxy)
-        total_volume = sum(float(b["size"]) for b in bids) + sum(float(a["size"]) for a in asks)
+        # Book depth (total resting size) — NOT real 24h traded volume.
+        # Real volume comes from Gamma API via MarketContract.volume_24h.
+        book_depth = sum(float(b["size"]) for b in bids) + sum(float(a["size"]) for a in asks)
 
         return MarketPrice(
             token_id=token_id,
@@ -230,7 +238,7 @@ class CLOBClient:
             bid=best_bid,
             ask=best_ask,
             mid=mid,
-            volume_24h=total_volume,
+            volume_24h=book_depth,
         )
 
     async def get_order_book_depth(self, token_id: str) -> dict:

@@ -174,7 +174,7 @@ class TradingPipeline:
                         model_prob=model_prob,
                         market_prob=market_prob,
                         regime=regime,
-                        volume_24h=price.volume_24h,
+                        volume_24h=contract.volume_24h,  # real traded volume from Gamma
                         hours_to_resolution=hours_to_resolution,
                         market_id=contract.token_id,
                     )

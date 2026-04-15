@@ -77,6 +77,7 @@ class MarketContract(BaseModel):
     temp_bucket_low: float  # lower bound (Fahrenheit)
     temp_bucket_high: float  # upper bound (Fahrenheit)
     outcome: Literal["Yes", "No"]
+    volume_24h: float = 0.0  # real traded volume from Gamma API
 
 
 class MarketPrice(BaseModel):

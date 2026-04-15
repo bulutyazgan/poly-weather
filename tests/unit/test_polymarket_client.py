@@ -48,6 +48,7 @@ def _temp_market(
     yes_token: str = "tok_yes_1",
     no_token: str = "tok_no_1",
     closed: bool = False,
+    volume: str = "5000.0",
 ) -> dict:
     """Build a sub-market dict matching Gamma API structure."""
     return {
@@ -60,6 +61,7 @@ def _temp_market(
         "active": True,
         "closed": closed,
         "endDate": "2026-04-16T12:00:00Z",
+        "volume": volume,
     }
 
 
@@ -158,6 +160,9 @@ class TestFetchWeatherMarkets:
         # Check NO token IDs are populated
         assert below.no_token_id == "tok_no_1"
         assert rng.no_token_id == "tok_no_1"
+
+        # Check real traded volume from Gamma (not book depth)
+        assert below.volume_24h == pytest.approx(5000.0)
 
         # Check the "or higher" bucket
         above = next(c for c in contracts if c.token_id == "tok_above")
