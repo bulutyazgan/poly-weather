@@ -6,7 +6,7 @@ export interface Station {
   elevation_ft: number;
   model_grid_elevation_ft: number;
   lapse_rate_correction_f: number;
-  microclimate_flags: string[];
+  flags: string[];
 }
 
 export interface Performance {
@@ -14,6 +14,9 @@ export interface Performance {
   win_rate: number;
   trade_count: number;
   signal_count: number;
+  fill_rate: number | null;
+  adverse_selection_ratio: number | null;
+  being_picked_off: boolean;
 }
 
 export interface Signal {

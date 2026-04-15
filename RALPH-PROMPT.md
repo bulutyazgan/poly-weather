@@ -80,6 +80,11 @@ If ALL of the following are true, output <promise>RALPH COMPLETE</promise>:
 - You have audited all 9 focus areas at least once (check the iteration log)
 - No TODO/FIXME/HACK items remain in src/
 
+If all focus areas are audited, switch to **feature mode** — identify and implement useful features:
+- Dashboard improvements: better data visualization, real-time updates, charts, regime display, trade history
+- Bot improvements: better logging, alerting, monitoring, data persistence
+- Pick ONE feature per iteration, implement it cleanly with tests, verify in browser with Playwright
+
 Otherwise, continue to the next iteration.
 
 ## Rules

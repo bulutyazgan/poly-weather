@@ -35,7 +35,21 @@ export function PerformanceCard({ data, loading }: Props) {
           <span className="metric-label">Signals</span>
           <span className="metric-value">{data.signal_count}</span>
         </div>
+        {data.fill_rate !== null && (
+          <div className="metric">
+            <span className="metric-label">Fill Rate</span>
+            <span className="metric-value">
+              {(data.fill_rate * 100).toFixed(0)}%
+            </span>
+          </div>
+        )}
       </div>
+      {data.being_picked_off && (
+        <div className="warning-banner">
+          Adverse selection detected — filled orders are losing more often than
+          unfilled ones. Consider widening spreads or reducing size.
+        </div>
+      )}
     </div>
   );
 }
