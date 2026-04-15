@@ -51,6 +51,7 @@ async def main():
         medium_threshold=settings.MEDIUM_REGIME_EDGE_THRESHOLD,
         min_volume=settings.MIN_MARKET_VOLUME,
         min_hours=settings.MIN_HOURS_TO_RESOLUTION,
+        max_market_certainty=settings.MAX_MARKET_CERTAINTY,
     )
     position_sizer = PositionSizer(
         kelly_fraction=settings.KELLY_FRACTION,

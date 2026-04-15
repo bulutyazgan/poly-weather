@@ -151,6 +151,69 @@ class TestEdgeDetector:
         )
         assert sig.action == "SKIP"
 
+    def test_skip_foregone_conclusion_high_market_prob(self):
+        """market_prob=0.95 -> near-certain YES outcome -> SKIP even with large edge."""
+        det = self._make_detector()
+        sig = det.evaluate(
+            model_prob=0.85,
+            market_prob=0.95,
+            regime=_make_regime(confidence="HIGH"),
+            volume_24h=5000.0,
+            hours_to_resolution=24.0,
+        )
+        assert sig.action == "SKIP"
+
+    def test_skip_foregone_conclusion_low_market_prob(self):
+        """market_prob=0.04 -> near-certain NO outcome -> SKIP."""
+        det = self._make_detector()
+        sig = det.evaluate(
+            model_prob=0.15,
+            market_prob=0.04,
+            regime=_make_regime(confidence="HIGH"),
+            volume_24h=5000.0,
+            hours_to_resolution=24.0,
+        )
+        assert sig.action == "SKIP"
+
+    def test_trade_allowed_at_boundary(self):
+        """market_prob=0.92 exactly -> at the boundary, not past it -> TRADE allowed."""
+        det = self._make_detector()
+        sig = det.evaluate(
+            model_prob=0.75,
+            market_prob=0.92,
+            regime=_make_regime(confidence="HIGH"),
+            volume_24h=5000.0,
+            hours_to_resolution=24.0,
+        )
+        # edge = |0.75 - 0.92| = 0.17 >= 0.08 threshold
+        assert sig.action == "TRADE"
+
+    def test_trade_allowed_moderate_market_prob(self):
+        """market_prob=0.80 is well within range -> normal edge logic applies."""
+        det = self._make_detector()
+        sig = det.evaluate(
+            model_prob=0.65,
+            market_prob=0.80,
+            regime=_make_regime(confidence="HIGH"),
+            volume_24h=5000.0,
+            hours_to_resolution=24.0,
+        )
+        assert sig.action == "TRADE"
+        assert sig.direction == "BUY_NO"
+
+    def test_custom_certainty_threshold(self):
+        """Custom max_market_certainty=0.85 -> tighter guard."""
+        from src.trading.edge_detector import EdgeDetector
+        det = EdgeDetector(max_market_certainty=0.85)
+        sig = det.evaluate(
+            model_prob=0.70,
+            market_prob=0.90,
+            regime=_make_regime(confidence="HIGH"),
+            volume_24h=5000.0,
+            hours_to_resolution=24.0,
+        )
+        assert sig.action == "SKIP"
+
 
 # ===================================================================
 # PositionSizer tests

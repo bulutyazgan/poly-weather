@@ -374,6 +374,110 @@ class TestTradingPipeline:
 
         mocks["executor"].check_resolution_proximity.assert_awaited()
 
+    @pytest.mark.asyncio
+    async def test_buy_no_uses_no_token_price_not_yes(self):
+        """BUY_NO must pass the NO token's MarketPrice to executor, not the YES token's.
+
+        Bug: pipeline stored `snap` during Pass 1 and referenced it in Pass 2,
+        but `snap` was stale (last station from the loop). Even if `snap` was
+        correct, the fallback `snap.market_prices.get(no_token_id, price)` used
+        the YES token's MarketPrice when the NO token was missing.
+
+        Fix: NO token price is looked up during Pass 1 and stored in `pending`.
+        """
+        collector = AsyncMock()
+        prob_engine = MagicMock()
+        regime_classifier = MagicMock()
+        edge_detector = MagicMock()
+        position_sizer = MagicMock()
+        executor = AsyncMock()
+        prediction_log = MagicMock()
+        paper_trader = MagicMock()
+
+        now = datetime.now(tz=timezone.utc)
+
+        # Contract with both YES and NO token IDs
+        contract = MarketContract(
+            token_id="tok_yes",
+            no_token_id="tok_no",
+            condition_id="cond_1",
+            question="Will NYC high be 70-75°F?",
+            city="NYC",
+            resolution_date=date(2026, 4, 16),
+            temp_bucket_low=70.0,
+            temp_bucket_high=75.0,
+            outcome="Yes",
+            volume_24h=5000.0,
+        )
+
+        yes_price = MarketPrice(
+            token_id="tok_yes", timestamp=now,
+            bid=0.58, ask=0.62, mid=0.60, volume_24h=5000.0,
+        )
+        no_price = MarketPrice(
+            token_id="tok_no", timestamp=now,
+            bid=0.38, ask=0.42, mid=0.40, volume_24h=5000.0,
+        )
+
+        snap = DataSnapshot(
+            station_id="KNYC",
+            timestamp=now,
+            gfs_ensemble=_make_ensemble("KNYC", "gfs"),
+            ecmwf_ensemble=_make_ensemble("KNYC", "ecmwf"),
+            hrrr=[_make_hrrr("KNYC")],
+            observations=[_make_observation("KNYC")],
+            market_contracts=[contract],
+            market_prices={"tok_yes": yes_price, "tok_no": no_price},
+        )
+
+        collector.collect_snapshot = AsyncMock(return_value=[snap])
+        regime_classifier.classify = MagicMock(return_value=_make_regime("KNYC", "HIGH"))
+
+        mock_dist = MagicMock()
+        prob_engine.compute_distribution = MagicMock(return_value=mock_dist)
+        # model_prob=0.30 < market_prob=0.60 → BUY_NO direction
+        prob_engine.compute_bucket_probability = MagicMock(return_value=0.30)
+
+        buy_no_signal = TradingSignal(
+            market_id="tok_yes",
+            direction="BUY_NO",
+            action="TRADE",
+            edge=0.30,
+            kelly_size=0.0,
+            timestamp=now,
+        )
+        edge_detector.evaluate = MagicMock(return_value=buy_no_signal)
+        position_sizer.compute = MagicMock(return_value=2.0)
+        executor.execute = AsyncMock(return_value=MagicMock(trade_id="t1"))
+        executor.check_stale_quotes = AsyncMock(return_value=False)
+        executor.check_resolution_proximity = AsyncMock(return_value=False)
+
+        pipeline = TradingPipeline(
+            collector=collector,
+            prob_engine=prob_engine,
+            regime_classifier=regime_classifier,
+            edge_detector=edge_detector,
+            position_sizer=position_sizer,
+            executor=executor,
+            prediction_log=prediction_log,
+            paper_trader=paper_trader,
+        )
+
+        with patch("src.orchestrator.pipeline.get_stations", return_value={"NYC": _make_station()}):
+            await pipeline.run_cycle(bankroll=300.0)
+
+        # The executor must have been called with the NO token ID and NO price
+        executor.execute.assert_awaited_once()
+        call_kwargs = executor.execute.call_args
+        assert call_kwargs.kwargs["token_id"] == "tok_no", (
+            "BUY_NO should use the NO token, not the YES token"
+        )
+        exec_price = call_kwargs.kwargs["market_price"]
+        assert exec_price.token_id == "tok_no", (
+            f"BUY_NO should use NO token price (ask={no_price.ask}), "
+            f"got {exec_price.token_id} price (ask={exec_price.ask})"
+        )
+
 
 # ---------------------------------------------------------------------------
 # PipelineScheduler tests

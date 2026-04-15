@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     MEDIUM_REGIME_EDGE_THRESHOLD: float = 0.12
     MIN_HOURS_TO_RESOLUTION: int = 2
     MIN_MARKET_VOLUME: int = 2000
+    MAX_MARKET_CERTAINTY: float = 0.92
     PAPER_TRADING: bool = True
 
     # API URLs

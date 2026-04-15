@@ -15,11 +15,13 @@ class EdgeDetector:
         medium_threshold: float = 0.12,
         min_volume: float = 2000.0,
         min_hours: float = 2.0,
+        max_market_certainty: float = 0.92,
     ) -> None:
         self.high_threshold = high_threshold
         self.medium_threshold = medium_threshold
         self.min_volume = min_volume
         self.min_hours = min_hours
+        self.max_market_certainty = max_market_certainty
 
     def evaluate(
         self,
@@ -38,8 +40,14 @@ class EdgeDetector:
         edge = abs(model_prob - market_prob)
         direction = "BUY_YES" if model_prob > market_prob else "BUY_NO"
 
-        # Determine required threshold based on regime confidence
-        if regime.confidence == "LOW":
+        # Foregone conclusion guard: skip markets where the outcome is
+        # already near-certain.  When market_prob > 0.92 or < 0.08 the
+        # price reflects information (observed temps, late-breaking data)
+        # our forecast model doesn't have, and the risk/reward is terrible.
+        min_certainty = 1.0 - self.max_market_certainty
+        if market_prob > self.max_market_certainty or market_prob < min_certainty:
+            action = "SKIP"
+        elif regime.confidence == "LOW":
             action = "SKIP"
         elif volume_24h < self.min_volume:
             action = "SKIP"

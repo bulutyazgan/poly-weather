@@ -186,11 +186,17 @@ class TradingPipeline:
                             timestamp=signal.timestamp,
                         )
 
+                    # Look up NO token price now while we have the correct snapshot
+                    no_price = None
+                    if contract.no_token_id:
+                        no_price = snap.market_prices.get(contract.no_token_id)
+
                     pending.append({
                         "signal": signal,
                         "station": station,
                         "contract": contract,
                         "price": price,
+                        "no_price": no_price,
                         "regime": regime,
                         "model_prob": model_prob,
                         "market_prob": market_prob,
@@ -246,9 +252,10 @@ class TradingPipeline:
                 )
 
                 # Select correct token and price for the trade direction
-                if signal.direction == "BUY_NO" and contract.no_token_id:
+                no_price = p["no_price"]
+                if signal.direction == "BUY_NO" and contract.no_token_id and no_price is not None:
                     exec_token = contract.no_token_id
-                    exec_price = snap.market_prices.get(contract.no_token_id, price)
+                    exec_price = no_price
                 else:
                     exec_token = contract.token_id
                     exec_price = price
