@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src.config.stations import get_station, get_stations
 from src.prediction.calibration import BrierScore, ReliabilityDiagram
+from src.trading.executor import OrderExecutor
 from src.verification.paper_trader import PaperTrader
 from src.verification.prediction_log import PredictionLog
 
@@ -37,18 +38,21 @@ app.add_middleware(
 _prediction_log: PredictionLog | None = None
 _paper_trader: PaperTrader | None = None
 _scheduler: PipelineScheduler | None = None
+_executor: OrderExecutor | None = None
 
 
 def set_state(
     log: PredictionLog | None,
     trader: PaperTrader | None,
     scheduler: PipelineScheduler | None,
+    executor: OrderExecutor | None = None,
 ) -> None:
     """Inject shared state (called from main.py startup or tests)."""
-    global _prediction_log, _paper_trader, _scheduler
+    global _prediction_log, _paper_trader, _scheduler, _executor
     _prediction_log = log
     _paper_trader = trader
     _scheduler = scheduler
+    _executor = executor
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +86,9 @@ async def get_performance():
         "win_rate": _paper_trader.win_rate() if _paper_trader else 0.0,
         "trade_count": len(_paper_trader.get_resolved_trades()) if _paper_trader else 0,
         "signal_count": _prediction_log.count() if _prediction_log else 0,
+        "fill_rate": _executor.get_fill_rate() if _executor else None,
+        "adverse_selection_ratio": _executor.get_adverse_selection_ratio() if _executor else None,
+        "being_picked_off": _executor.is_being_picked_off() if _executor else False,
     }
 
 
@@ -146,12 +153,17 @@ async def get_calibration():
     outcomes = []
     for t in resolved:
         signal = t["signal"]
-        price = t["entry_price"]
-        # Use entry price as the model's implied probability
-        if signal.direction == "BUY_YES":
-            forecasts.append(price)
+        model_prob = t.get("model_probability")
+        if model_prob is not None:
+            # Use the model's actual probability forecast for calibration
+            forecasts.append(model_prob)
         else:
-            forecasts.append(1.0 - price)
+            # Fallback for trades recorded before model_probability was stored
+            price = t["entry_price"]
+            if signal.direction == "BUY_YES":
+                forecasts.append(price)
+            else:
+                forecasts.append(1.0 - price)
         outcomes.append(bool(t["outcome"]))
 
     try:

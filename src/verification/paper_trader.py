@@ -23,6 +23,7 @@ class PaperTrader:
         contract: MarketContract,
         entry_price: float,
         amount_usd: float,
+        model_probability: float | None = None,
     ) -> str:
         """Record a paper trade. Returns trade_id."""
         trade_id = str(uuid.uuid4())
@@ -32,6 +33,7 @@ class PaperTrader:
             "contract": contract,
             "entry_price": entry_price,
             "amount_usd": amount_usd,
+            "model_probability": model_probability,
             "resolved": False,
             "outcome": None,
             "pnl": None,

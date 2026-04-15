@@ -265,6 +265,7 @@ class TradingPipeline:
                         contract=contract,
                         entry_price=price.mid,
                         amount_usd=size_usd,
+                        model_probability=model_prob,
                     )
                     current_exposure += size_usd
                     trades_placed += 1
