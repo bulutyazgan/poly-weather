@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     MAX_EDGE: float = 0.25
     PAPER_TRADING: bool = True
 
+    # Price monitor
+    PRICE_MONITOR_ENABLED: bool = True
+    PRICE_MONITOR_DEBOUNCE_S: float = 10.0
+    PRICE_MONITOR_COOLDOWN_S: float = 900.0  # 15 min per contract
+    PRICE_MONITOR_MAX_FORECAST_AGE_S: float = 28800.0  # 8 hours
+    BANKROLL: float = 300.0  # total bankroll in USD
+
     # API URLs
     POLYMARKET_API_URL: str = "https://clob.polymarket.com"
     POLYMARKET_GAMMA_URL: str = "https://gamma-api.polymarket.com"
