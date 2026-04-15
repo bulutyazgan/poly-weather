@@ -358,28 +358,40 @@ def _pick_ensemble_for_date(
     forecasts: list[EnsembleForecast],
     target_date: date,
 ) -> EnsembleForecast | None:
-    """Pick the ensemble forecast with the highest Tmax for a target date.
+    """Pick the ensemble forecast at the hour of peak ensemble-mean temperature.
 
-    Scans all ensemble hours on the target date (or within ±12h of noon)
-    and returns the one whose max member is highest — that member at
-    that hour is the best Tmax estimate from the ensemble.
+    Scans daytime hours (12-00 UTC ≈ 8am-8pm EDT) on the target date
+    and returns the hour where the ensemble mean is highest.  This gives
+    the consensus Tmax estimate — using the mean (not max member) avoids
+    a systematic warm bias of 1-3°F.
     """
     if not forecasts:
         return None
 
-    noon_utc = datetime.combine(target_date, time(12, 0), tzinfo=timezone.utc)
-    # Gather all forecasts on the target date (midnight-midnight UTC,
-    # extended by ±6h to capture US afternoon heating in UTC terms)
+    # Daytime window: 12-00 UTC covers US afternoon heating
+    # (8am-8pm EDT, 6am-6pm PDT, 7am-7pm CDT, etc.)
+    day_start = datetime.combine(target_date, time(12, 0), tzinfo=timezone.utc)
+    day_end = datetime.combine(target_date, time(23, 59), tzinfo=timezone.utc)
+
     candidates = [
         f for f in forecasts
-        if abs((f.valid_time - noon_utc).total_seconds()) <= 18 * 3600
+        if day_start <= f.valid_time <= day_end
         and f.members
     ]
     if not candidates:
+        # Broader fallback: any hour within ±18h of noon
+        noon_utc = datetime.combine(target_date, time(12, 0), tzinfo=timezone.utc)
+        candidates = [
+            f for f in forecasts
+            if abs((f.valid_time - noon_utc).total_seconds()) <= 18 * 3600
+            and f.members
+        ]
+
+    if not candidates:
         return None
 
-    # Return the forecast with the highest max-member (= best Tmax signal)
-    return max(candidates, key=lambda f: max(f.members))
+    # Return the hour with the highest ensemble mean (= consensus Tmax)
+    return max(candidates, key=lambda f: f.mean)
 
 
 def _synthesize_mos(
@@ -407,11 +419,13 @@ def _synthesize_mos(
 
     candidates: list[float] = []
 
-    # Ensemble Tmax from date-matched hour
+    # Ensemble Tmax from date-matched peak-heating hour.
+    # Use ensemble mean (consensus), not max member — max member
+    # systematically overestimates Tmax by 1-3°F.
     if gfs_day is not None:
-        candidates.append(max(gfs_day.members))
+        candidates.append(gfs_day.mean)
     if ecmwf_day is not None:
-        candidates.append(max(ecmwf_day.members))
+        candidates.append(ecmwf_day.mean)
 
     # HRRR: only valid for today (≤18h ahead), but has actual hourly temps
     # spanning daytime heating — often captures Tmax better than a single

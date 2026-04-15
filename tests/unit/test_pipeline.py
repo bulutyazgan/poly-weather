@@ -88,22 +88,20 @@ class TestSynthesizeMos:
         mos = _synthesize_mos(snap, station, now)
         assert mos.high_f == pytest.approx(72.0)
 
-    def test_ensemble_uses_max_member_not_mean(self):
-        """When only ensemble is available, use max of members (not mean)
-        as a conservative upper-bound Tmax estimate.
+    def test_ensemble_uses_mean_at_peak_hour(self):
+        """When only ensemble is available, use ensemble mean (consensus Tmax).
 
         Hand calculation:
             GFS members: [55, 60, 65, 70, 75]
-            mean = 65, max = 75
-            We want 75 (conservative upper bound for Tmax).
+            mean = 65
+            We want 65 (ensemble consensus, not max=75 which is biased warm).
         """
         snap = _make_snap(gfs_members=[55.0, 60.0, 65.0, 70.0, 75.0])
         station = _make_station()
         now = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
 
         mos = _synthesize_mos(snap, station, now)
-        # Must NOT be the mean (65) — should be max member (75)
-        assert mos.high_f == pytest.approx(75.0)
+        assert mos.high_f == pytest.approx(65.0)
 
     def test_ecmwf_fallback(self):
         """ECMWF is used when GFS and HRRR are unavailable."""
@@ -112,7 +110,8 @@ class TestSynthesizeMos:
         now = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
 
         mos = _synthesize_mos(snap, station, now)
-        assert mos.high_f == pytest.approx(72.0)
+        # mean([60, 68, 72]) = 66.67
+        assert mos.high_f == pytest.approx(66.67, abs=0.1)
 
     def test_no_data_fallback(self):
         """When no weather data is available, fall back to 70°F."""
