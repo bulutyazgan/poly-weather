@@ -138,8 +138,8 @@ class TestProbabilityEngine:
     def test_mos_anchored_distribution(self) -> None:
         """Combined distribution centred on MOS, spread between the two ensembles."""
         mos = _make_mos(tmax=75.0)
-        gfs = _make_ensemble(model="gfs", mean=74.0, std=2.5, n=30)
-        ecmwf = _make_ensemble(model="ecmwf", mean=76.0, std=2.0, n=50)
+        gfs = _make_ensemble(model="gfs", mean=74.0, std=4.0, n=30)
+        ecmwf = _make_ensemble(model="ecmwf", mean=76.0, std=3.5, n=50)
         station = _make_station()
 
         dist = self.engine.compute_distribution(mos, gfs, ecmwf, station)
@@ -147,10 +147,21 @@ class TestProbabilityEngine:
         # Centre should be MOS (75), not ensemble means
         assert abs(dist.mean() - 75.0) < 0.1
         # Combined std = 0.4*gfs.std + 0.6*ecmwf.std (weighted by engine weights)
+        # = 0.4*4.0 + 0.6*3.5 = 3.7, above min_spread floor (2.5)
         expected_std = 0.4 * gfs.std + 0.6 * ecmwf.std
         assert abs(dist.std() - expected_std) < 0.01
-        # Sanity: combined std should be between the smaller and larger ensemble stds
-        assert min(gfs.std, ecmwf.std) <= dist.std() <= max(gfs.std, ecmwf.std)
+
+    def test_min_spread_floor(self) -> None:
+        """Ensemble spread below min_spread (2.5°F) is floored."""
+        mos = _make_mos(tmax=75.0)
+        gfs = _make_ensemble(model="gfs", mean=74.0, std=0.7, n=30)
+        station = _make_station()
+
+        dist = self.engine.compute_distribution(mos, gfs, None, station)
+
+        # GFS std=0.7 is below min_spread=2.5, so floor applies
+        from src.prediction.probability_engine import MIN_SPREAD_STD
+        assert abs(dist.std() - MIN_SPREAD_STD) < 0.01
 
     def test_lapse_rate_correction_applied(self) -> None:
         """Station lapse_rate_correction_f should shift distribution centre."""
@@ -170,14 +181,14 @@ class TestProbabilityEngine:
         assert abs(dist.std() - 4.0) < 0.01
 
     def test_single_ensemble_used_alone(self) -> None:
-        """When only one ensemble is available, use its std directly."""
+        """When only one ensemble is available, use its std (floored at min_spread)."""
         mos = _make_mos(tmax=72.0)
-        ecmwf = _make_ensemble(model="ecmwf", mean=73.0, std=2.0, n=50)
+        ecmwf = _make_ensemble(model="ecmwf", mean=73.0, std=3.5, n=50)
         station = _make_station()
 
         dist = self.engine.compute_distribution(mos, None, ecmwf, station)
-        # std should be close to ecmwf's std
-        assert abs(dist.std() - ecmwf.std) < 0.3
+        # std should be ecmwf's std (3.5 > min_spread 2.5)
+        assert abs(dist.std() - ecmwf.std) < 0.01
 
 
 # ===========================================================================

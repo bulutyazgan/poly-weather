@@ -8,13 +8,27 @@ from src.config.stations import Station
 
 CLIMATOLOGICAL_STD = 4.0  # fallback when no ensemble data available
 
+# Minimum spread floor based on NWP Tmax forecast skill.
+# Ensemble spread at a single valid time measures inter-model disagreement
+# at that hour, NOT the full uncertainty about the daily high.  The true
+# Tmax uncertainty includes: (a) which hour the peak occurs, (b) boundary
+# layer mixing, (c) cloud timing, (d) instrument exposure.
+# Published RMSE values for GFS/ECMWF Tmax: day 0 ~2-3°F, day 1 ~3-4°F.
+MIN_SPREAD_STD = 2.5
+
 
 class ProbabilityEngine:
     """Build probability distributions from MOS + ensemble forecasts."""
 
-    def __init__(self, ecmwf_weight: float = 0.6, gfs_weight: float = 0.4) -> None:
+    def __init__(
+        self,
+        ecmwf_weight: float = 0.6,
+        gfs_weight: float = 0.4,
+        min_spread: float = MIN_SPREAD_STD,
+    ) -> None:
         self.ecmwf_weight = ecmwf_weight
         self.gfs_weight = gfs_weight
+        self.min_spread = min_spread
 
     def compute_distribution(
         self,
@@ -26,7 +40,8 @@ class ProbabilityEngine:
         """Build a normal distribution anchored on MOS with ensemble-derived spread.
 
         Centre = MOS high_f + station lapse rate correction.
-        Spread = weighted combination of ensemble stds (or climatological fallback).
+        Spread = weighted combination of ensemble stds, floored at min_spread
+        to prevent overconfident distributions from narrow ensemble agreement.
         """
         center = mos.high_f + station.lapse_rate_correction_f
 
@@ -43,9 +58,8 @@ class ProbabilityEngine:
         else:
             combined_std = CLIMATOLOGICAL_STD
 
-        # Guard against zero/negative std
-        if combined_std <= 0:
-            combined_std = CLIMATOLOGICAL_STD
+        # Floor: ensemble spread at one hour underestimates Tmax uncertainty
+        combined_std = max(combined_std, self.min_spread)
 
         return stats.norm(loc=center, scale=combined_std)
 
