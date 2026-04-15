@@ -1,6 +1,8 @@
 """MOS-anchored ensemble probability estimation."""
 from __future__ import annotations
 
+import math
+
 from scipy import stats
 
 from src.data.models import EnsembleForecast, MOSForecast
@@ -45,12 +47,18 @@ class ProbabilityEngine:
         """
         center = mos.high_f + station.lapse_rate_correction_f
 
-        # Determine spread from ensembles
+        # Determine spread from ensembles.
+        # Two sources of uncertainty:
+        #   1. Within-model spread (member disagreement at peak hour)
+        #   2. Between-model spread (GFS vs ECMWF Tmax disagreement)
+        # Combine via quadrature: sqrt(within² + between²)
         if gfs_ensemble is not None and ecmwf_ensemble is not None:
-            combined_std = (
+            within_std = (
                 self.gfs_weight * gfs_ensemble.std
                 + self.ecmwf_weight * ecmwf_ensemble.std
             )
+            between_std = abs(gfs_ensemble.mean - ecmwf_ensemble.mean) / 2.0
+            combined_std = math.sqrt(within_std**2 + between_std**2)
         elif ecmwf_ensemble is not None:
             combined_std = ecmwf_ensemble.std
         elif gfs_ensemble is not None:

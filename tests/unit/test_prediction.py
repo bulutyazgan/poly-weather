@@ -146,9 +146,14 @@ class TestProbabilityEngine:
 
         # Centre should be MOS (75), not ensemble means
         assert abs(dist.mean() - 75.0) < 0.1
-        # Combined std = 0.4*gfs.std + 0.6*ecmwf.std (weighted by engine weights)
-        # = 0.4*4.0 + 0.6*3.5 = 3.7, above min_spread floor (2.5)
-        expected_std = 0.4 * gfs.std + 0.6 * ecmwf.std
+        # Combined std = sqrt(within² + between²)
+        # within = 0.4*4.0 + 0.6*3.5 = 3.7
+        # between = |74.0 - 76.0| / 2 = 1.0
+        # combined = sqrt(3.7² + 1.0²) = sqrt(13.69 + 1.0) = sqrt(14.69) ≈ 3.83
+        import math
+        within = 0.4 * gfs.std + 0.6 * ecmwf.std
+        between = abs(gfs.mean - ecmwf.mean) / 2.0
+        expected_std = math.sqrt(within**2 + between**2)
         assert abs(dist.std() - expected_std) < 0.01
 
     def test_min_spread_floor(self) -> None:
@@ -179,6 +184,31 @@ class TestProbabilityEngine:
         station = _make_station()
         dist = self.engine.compute_distribution(mos, None, None, station)
         assert abs(dist.std() - 4.0) < 0.01
+
+    def test_between_model_disagreement_widens_spread(self) -> None:
+        """When GFS and ECMWF disagree, std should be much wider than within-model.
+
+        Hand calculation:
+            GFS mean=68, ECMWF mean=77, both have std=1.0
+            within = 0.4*1.0 + 0.6*1.0 = 1.0
+            between = |68 - 77| / 2 = 4.5
+            combined = sqrt(1.0² + 4.5²) = sqrt(1 + 20.25) = sqrt(21.25) ≈ 4.61
+        Without this fix, combined would be max(1.0, 2.5) = 2.5 — overconfident.
+        """
+        import math
+        mos = _make_mos(tmax=72.0)
+        gfs = _make_ensemble(model="gfs", mean=68.0, std=3.0, n=30)
+        ecmwf = _make_ensemble(model="ecmwf", mean=77.0, std=3.0, n=50)
+        station = _make_station()
+
+        dist = self.engine.compute_distribution(mos, gfs, ecmwf, station)
+
+        within = 0.4 * gfs.std + 0.6 * ecmwf.std
+        between = abs(gfs.mean - ecmwf.mean) / 2.0
+        expected = math.sqrt(within**2 + between**2)
+        assert abs(dist.std() - expected) < 0.01
+        # Key: combined should be well above the floor
+        assert dist.std() > 4.0
 
     def test_single_ensemble_used_alone(self) -> None:
         """When only one ensemble is available, use its std (floored at min_spread)."""
