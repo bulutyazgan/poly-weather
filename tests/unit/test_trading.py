@@ -257,6 +257,61 @@ class TestEdgeDetector:
         )
         assert sig.action == "SKIP"
 
+    def test_spread_aware_edge_buy_yes(self):
+        """BUY_YES edge computed against ask, not mid."""
+        det = self._make_detector()
+        # model=0.40, bid=0.28, ask=0.32, mid=0.30
+        # Old: edge = |0.40 - 0.30| = 0.10
+        # New: edge = 0.40 - 0.32 = 0.08 (against ask)
+        sig = det.evaluate(
+            model_prob=0.40,
+            market_prob=0.30,
+            regime=_make_regime(confidence="HIGH"),
+            volume_24h=5000.0,
+            hours_to_resolution=24.0,
+            market_bid=0.28,
+            market_ask=0.32,
+        )
+        assert sig.direction == "BUY_YES"
+        assert abs(sig.edge - 0.08) < 1e-9
+        assert sig.action == "TRADE"
+
+    def test_spread_aware_edge_buy_no(self):
+        """BUY_NO edge computed against bid, not mid."""
+        det = self._make_detector()
+        # model=0.30, bid=0.40, ask=0.44, mid=0.42
+        # Old: edge = |0.30 - 0.42| = 0.12
+        # New: edge = 0.40 - 0.30 = 0.10 (against bid)
+        sig = det.evaluate(
+            model_prob=0.30,
+            market_prob=0.42,
+            regime=_make_regime(confidence="HIGH"),
+            volume_24h=5000.0,
+            hours_to_resolution=24.0,
+            market_bid=0.40,
+            market_ask=0.44,
+        )
+        assert sig.direction == "BUY_NO"
+        assert abs(sig.edge - 0.10) < 1e-9
+        assert sig.action == "TRADE"
+
+    def test_spread_eats_edge(self):
+        """When spread consumes the entire edge, signal is SKIP."""
+        det = self._make_detector()
+        # model=0.33, bid=0.30, ask=0.36, mid=0.33
+        # BUY_YES: model > mid, but model < ask -> edge = 0
+        sig = det.evaluate(
+            model_prob=0.34,
+            market_prob=0.33,
+            regime=_make_regime(confidence="HIGH"),
+            volume_24h=5000.0,
+            hours_to_resolution=24.0,
+            market_bid=0.30,
+            market_ask=0.36,
+        )
+        assert sig.edge == 0.0
+        assert sig.action == "SKIP"
+
 
 # ===================================================================
 # PositionSizer tests

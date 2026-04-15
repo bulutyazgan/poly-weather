@@ -33,14 +33,31 @@ class EdgeDetector:
         volume_24h: float,
         hours_to_resolution: float,
         market_id: str = "",
+        market_bid: float | None = None,
+        market_ask: float | None = None,
     ) -> TradingSignal:
         """Check all entry conditions and return a TradingSignal.
 
-        Edge is always ``|model_prob - market_prob|``.
+        Edge is computed against the *execution price*, not the mid:
+          BUY_YES edge = model_prob - ask   (we pay the ask to buy YES)
+          BUY_NO  edge = bid - model_prob   (we sell YES at bid ≈ buy NO)
+
+        When bid/ask are not available, falls back to ``|model_prob - mid|``.
         Direction is BUY_YES when model_prob > market_prob, else BUY_NO.
         """
-        edge = abs(model_prob - market_prob)
         direction = "BUY_YES" if model_prob > market_prob else "BUY_NO"
+
+        # Compute edge against execution price (spread-aware)
+        if direction == "BUY_YES" and market_ask is not None:
+            edge = model_prob - market_ask
+        elif direction == "BUY_NO" and market_bid is not None:
+            edge = market_bid - model_prob
+        else:
+            edge = abs(model_prob - market_prob)
+
+        # Negative edge means the spread eats the entire advantage
+        if edge < 0:
+            edge = 0.0
 
         # Implausible edge guard: edges above max_edge almost certainly
         # indicate a model failure (e.g. 0% model prob against 50% market).

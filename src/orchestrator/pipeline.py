@@ -175,6 +175,8 @@ class TradingPipeline:
                         volume_24h=contract.volume_24h,  # real traded volume from Gamma
                         hours_to_resolution=hours_to_resolution,
                         market_id=contract.token_id,
+                        market_bid=price.bid,
+                        market_ask=price.ask,
                     )
 
                     signals_generated += 1
