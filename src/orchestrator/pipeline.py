@@ -340,15 +340,32 @@ class TradingPipeline:
 
 
 def _synthesize_mos(snap: DataSnapshot, station: Station, now: datetime) -> MOSForecast:
-    """Create a synthetic MOS forecast from ensemble data when real MOS is unavailable."""
-    if snap.gfs_ensemble is not None:
-        high = snap.gfs_ensemble.mean
-    elif snap.ecmwf_ensemble is not None:
-        high = snap.ecmwf_ensemble.mean
-    elif snap.hrrr:
+    """Create a synthetic MOS forecast from available weather data.
+
+    For daily Tmax estimation:
+      1. HRRR (preferred): hourly forecasts — max across hours ≈ daily Tmax.
+      2. Ensemble fallback: stored forecast is for a single valid time, NOT
+         the daily max.  Use max of ensemble members as a conservative
+         upper-bound estimate rather than the mean (which would be 10-20°F
+         cold-biased for Tmax).
+      3. Hard fallback: 70°F.
+    """
+    high: float | None = None
+
+    # HRRR hourly forecasts — max across hours is the best Tmax proxy
+    if snap.hrrr:
         high = max(h.temp_f for h in snap.hrrr)
-    else:
-        high = 70.0  # fallback
+
+    # Ensemble fallback: max member is a conservative upper-bound for Tmax.
+    # The ensemble mean at a single time point systematically underestimates
+    # daily Tmax by ~10-20°F depending on the valid time vs peak heating.
+    if high is None and snap.gfs_ensemble is not None:
+        high = max(snap.gfs_ensemble.members)
+    if high is None and snap.ecmwf_ensemble is not None:
+        high = max(snap.ecmwf_ensemble.members)
+
+    if high is None:
+        high = 70.0  # last resort fallback
 
     return MOSForecast(
         station_id=station.station_id,
