@@ -59,20 +59,18 @@ class TradingPipeline:
         bankroll: float = 300.0,
         current_exposure: float = 0.0,
     ) -> dict:
-        """Run one full pipeline cycle.
+        """Run one full pipeline cycle using two-pass architecture.
 
-        For each station:
-        1. Get latest data snapshot
-        2. Classify regime
-        3. Compute MOS-anchored probability distribution
-        4. For each active market contract:
-           a. Compute bucket probability (model_prob)
-           b. Get market price (market_prob)
-           c. Evaluate edge
-           d. If TRADE: size position, execute (paper or live)
-           e. Log signal to PredictionLog (TRADE or SKIP)
-        5. Check stale quotes
-        6. Check resolution proximity
+        Pass 1 — Signal generation:
+          For each station, classify regime, compute probabilities, evaluate
+          edge for every market contract.  Collect all signals into a pending
+          list.  No sizing or execution yet.
+
+        Pass 2 — Sizing & execution:
+          Count how many stations have TRADE signals (for correlation
+          penalty).  If CUSUM alarm is active, convert ALL TRADE → SKIP.
+          Otherwise, size each TRADE with the correlation-aware sizer and
+          execute.
 
         Returns summary dict.
         """
@@ -84,18 +82,25 @@ class TradingPipeline:
         now = datetime.now(tz=timezone.utc)
         stations = get_stations()
 
-        # 1. Collect latest data
+        # -- Check CUSUM alarm at the TOP of the cycle -----------------------
+        cusum_blocked = self._cusum is not None and self._cusum.alarm
+        if cusum_blocked:
+            logger.warning("CUSUM alarm active — all trades blocked this cycle")
+
+        # -- 1. Collect latest data ------------------------------------------
         try:
             snapshots = await self._collector.collect_snapshot()
         except Exception:
             logger.exception("Failed to collect snapshots")
             return {"signals_generated": 0, "trades_placed": 0, "skips": 0, "errors": 1}
 
-        # Build lookup by station_id
         snap_by_station: dict[str, DataSnapshot] = {s.station_id: s for s in snapshots}
-
-        # Track current prices for stale-quote checking
         current_prices: dict[str, float] = {}
+
+        # ================================================================
+        # PASS 1 — Signal generation (no sizing, no execution)
+        # ================================================================
+        pending: list[dict] = []  # each entry holds everything needed for pass 2
 
         for city, station in stations.items():
             snap = snap_by_station.get(station.station_id)
@@ -103,7 +108,7 @@ class TradingPipeline:
                 logger.warning("No snapshot for station %s", station.station_id)
                 continue
 
-            # 2. Classify regime
+            # Classify regime
             try:
                 ensemble_spread = snap.gfs_ensemble.std if snap.gfs_ensemble else 4.0
                 regime = self._regime_classifier.classify(
@@ -116,8 +121,7 @@ class TradingPipeline:
                 errors += 1
                 continue
 
-            # 3. Build probability distribution
-            #    We need a MOS forecast; synthesize one from ensemble if unavailable
+            # Build probability distribution
             try:
                 mos = _synthesize_mos(snap, station, now)
                 distribution = self._prob_engine.compute_distribution(
@@ -131,31 +135,25 @@ class TradingPipeline:
                 errors += 1
                 continue
 
-            # 4. Evaluate each market contract
+            # Evaluate each market contract
             for contract in snap.market_contracts:
                 try:
-                    # a. Model probability
                     model_prob = self._prob_engine.compute_bucket_probability(
                         distribution,
                         contract.temp_bucket_low,
                         contract.temp_bucket_high,
                     )
 
-                    # Apply calibration if available
                     if self._calibrator and self._calibrator.is_fitted:
-                        calibrated = self._calibrator.transform([model_prob])
-                        model_prob = calibrated[0]
+                        model_prob = self._calibrator.transform([model_prob])[0]
 
-                    # b. Market price
                     price = snap.market_prices.get(contract.token_id)
                     if price is None:
-                        logger.warning("No price for %s, skipping", contract.token_id)
                         continue
 
                     market_prob = price.mid
                     current_prices[contract.token_id] = market_prob
 
-                    # Hours to resolution
                     resolution_dt = datetime.combine(
                         contract.resolution_date,
                         datetime.min.time(),
@@ -166,7 +164,6 @@ class TradingPipeline:
                         (resolution_dt - now).total_seconds() / 3600.0,
                     )
 
-                    # c. Evaluate edge
                     signal = self._edge_detector.evaluate(
                         model_prob=model_prob,
                         market_prob=market_prob,
@@ -178,63 +175,26 @@ class TradingPipeline:
 
                     signals_generated += 1
 
-                    # d. Size and execute if TRADE
-                    if signal.action == "TRADE":
-                        size_usd = self._position_sizer.compute(
-                            edge=signal.edge,
-                            market_prob=market_prob,
-                            bankroll=bankroll,
-                            current_exposure=current_exposure,
-                            ensemble_spread_pctile=regime.ensemble_spread_percentile,
-                        )
-
-                        # Update signal with sized kelly
+                    # If CUSUM alarm is active, force all TRADE → SKIP
+                    if cusum_blocked and signal.action == "TRADE":
                         signal = TradingSignal(
                             market_id=signal.market_id,
                             direction=signal.direction,
-                            action=signal.action,
+                            action="SKIP",
                             edge=signal.edge,
-                            kelly_size=size_usd,
+                            kelly_size=0.0,
                             timestamp=signal.timestamp,
                         )
 
-                        # Execute
-                        trade_record = await self._executor.execute(
-                            signal=signal,
-                            token_id=contract.token_id,
-                            market_price=price,
-                        )
-
-                        # Record paper trade
-                        if trade_record is not None:
-                            self._paper_trader.record_trade(
-                                signal=signal,
-                                contract=contract,
-                                entry_price=price.mid,
-                                amount_usd=size_usd,
-                            )
-                            current_exposure += size_usd
-                            trades_placed += 1
-                    else:
-                        skips += 1
-
-                    # e. Log signal (TRADE or SKIP)
-                    log_entry = SignalLogEntry(
-                        signal=signal,
-                        station_id=station.station_id,
-                        regime=regime,
-                        model_probability=model_prob,
-                        market_probability=market_prob,
-                        contract=contract,
-                    )
-                    self._prediction_log.log(log_entry)
-
-                    # CUSUM monitoring
-                    if self._cusum is not None:
-                        residual = abs(model_prob - market_prob) - signal.edge
-                        self._cusum.update(residual)
-                        if self._cusum.alarm:
-                            logger.warning("CUSUM alarm triggered -- model may be degrading")
+                    pending.append({
+                        "signal": signal,
+                        "station": station,
+                        "contract": contract,
+                        "price": price,
+                        "regime": regime,
+                        "model_prob": model_prob,
+                        "market_prob": market_prob,
+                    })
 
                 except Exception:
                     logger.exception(
@@ -244,7 +204,84 @@ class TradingPipeline:
                     )
                     errors += 1
 
-        # 5. Check stale quotes
+        # ================================================================
+        # PASS 2 — Sizing & execution (correlation-aware)
+        # ================================================================
+
+        # Count distinct stations with TRADE signals for correlation penalty
+        trade_station_ids = {
+            p["station"].station_id
+            for p in pending
+            if p["signal"].action == "TRADE"
+        }
+        active_station_count = max(len(trade_station_ids), 1)
+
+        for p in pending:
+            signal = p["signal"]
+            station = p["station"]
+            contract = p["contract"]
+            price = p["price"]
+            regime = p["regime"]
+            model_prob = p["model_prob"]
+            market_prob = p["market_prob"]
+
+            if signal.action == "TRADE":
+                size_usd = self._position_sizer.compute(
+                    edge=signal.edge,
+                    market_prob=market_prob,
+                    bankroll=bankroll,
+                    current_exposure=current_exposure,
+                    ensemble_spread_pctile=regime.ensemble_spread_percentile,
+                    direction=signal.direction,
+                    active_station_count=active_station_count,
+                )
+
+                signal = TradingSignal(
+                    market_id=signal.market_id,
+                    direction=signal.direction,
+                    action=signal.action,
+                    edge=signal.edge,
+                    kelly_size=size_usd,
+                    timestamp=signal.timestamp,
+                )
+
+                trade_record = await self._executor.execute(
+                    signal=signal,
+                    token_id=contract.token_id,
+                    market_price=price,
+                )
+
+                if trade_record is not None:
+                    self._paper_trader.record_trade(
+                        signal=signal,
+                        contract=contract,
+                        entry_price=price.mid,
+                        amount_usd=size_usd,
+                    )
+                    current_exposure += size_usd
+                    trades_placed += 1
+            else:
+                skips += 1
+
+            # Log signal (TRADE or SKIP)
+            log_entry = SignalLogEntry(
+                signal=signal,
+                station_id=station.station_id,
+                regime=regime,
+                model_probability=model_prob,
+                market_probability=market_prob,
+                contract=contract,
+            )
+            self._prediction_log.log(log_entry)
+
+            # CUSUM monitoring (update even when blocked — tracks ongoing state)
+            if self._cusum is not None:
+                residual = abs(model_prob - market_prob) - signal.edge
+                self._cusum.update(residual)
+
+        # -- Post-trade checks -----------------------------------------------
+
+        # Check stale quotes
         try:
             await self._executor.check_stale_quotes(
                 last_model_update=self._last_model_update,
@@ -255,7 +292,7 @@ class TradingPipeline:
             logger.exception("Stale quote check failed")
             errors += 1
 
-        # 6. Check resolution proximity for earliest-resolving contract
+        # Check resolution proximity for earliest-resolving contract
         try:
             min_hours = float("inf")
             for snap in snapshots:
@@ -273,7 +310,6 @@ class TradingPipeline:
             logger.exception("Resolution proximity check failed")
             errors += 1
 
-        # Update previous prices for next cycle
         self._previous_prices = current_prices
         self._last_model_update = now
 
