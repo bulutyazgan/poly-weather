@@ -72,16 +72,17 @@ def _temp_market(
 
 class TestParseBucket:
     def test_range(self):
-        assert _parse_bucket("80-81°F") == (80.0, 81.0)
+        # "80-81°F" → [79.5, 81.5) with continuity correction
+        assert _parse_bucket("80-81°F") == (79.5, 81.5)
 
     def test_or_below(self):
         low, high = _parse_bucket("79°F or below")
         assert low == float("-inf")
-        assert high == 79.0
+        assert high == 79.5  # covers integer 79
 
     def test_or_higher(self):
         low, high = _parse_bucket("98°F or higher")
-        assert low == 98.0
+        assert low == 97.5  # covers integer 98
         assert high == float("inf")
 
     def test_unparseable(self):
@@ -154,14 +155,14 @@ class TestFetchWeatherMarkets:
         below = next(c for c in contracts if c.token_id == "tok_below")
         assert below.city == "NYC"
         assert below.temp_bucket_low == float("-inf")
-        assert below.temp_bucket_high == 79.0
+        assert below.temp_bucket_high == 79.5  # continuity correction
         assert below.resolution_date == target
         assert below.outcome == "Yes"
 
-        # Check the range bucket
+        # Check the range bucket (continuity-corrected)
         rng = next(c for c in contracts if c.token_id == "tok_range")
-        assert rng.temp_bucket_low == 80.0
-        assert rng.temp_bucket_high == 81.0
+        assert rng.temp_bucket_low == 79.5
+        assert rng.temp_bucket_high == 81.5
 
         # Check NO token IDs are populated
         assert below.no_token_id == "tok_no_1"
@@ -176,7 +177,7 @@ class TestFetchWeatherMarkets:
 
         # Check the "or higher" bucket
         above = next(c for c in contracts if c.token_id == "tok_above")
-        assert above.temp_bucket_low == 98.0
+        assert above.temp_bucket_low == 97.5  # continuity correction
         assert above.temp_bucket_high == float("inf")
 
     @respx.mock

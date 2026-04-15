@@ -86,16 +86,24 @@ def _build_event_slug(city: str, target_date: date, city_slug: str | None = None
 
 
 def _parse_bucket(label: str) -> tuple[float, float] | None:
-    """Parse a groupItemTitle like '80-81°F', '79°F or below', '98°F or higher'."""
+    """Parse a groupItemTitle like '80-81°F', '79°F or below', '98°F or higher'.
+
+    Polymarket resolves based on the recorded high temperature rounded to the
+    nearest integer degree.  We apply a ±0.5 continuity correction so that
+    CDF-based probability calculations cover the full integer range:
+      '56-57°F'      → [55.5, 57.5)   (covers integers 56 and 57)
+      '79°F or below' → (-∞, 79.5)    (covers …, 78, 79)
+      '98°F or higher' → [97.5, +∞)   (covers 98, 99, …)
+    """
     m = _BUCKET_RANGE.search(label)
     if m:
-        return float(m.group(1)), float(m.group(2))
+        return float(m.group(1)) - 0.5, float(m.group(2)) + 0.5
     m = _BUCKET_OR_BELOW.search(label)
     if m:
-        return float("-inf"), float(m.group(1))
+        return float("-inf"), float(m.group(1)) + 0.5
     m = _BUCKET_OR_HIGHER.search(label)
     if m:
-        return float(m.group(1)), float("inf")
+        return float(m.group(1)) - 0.5, float("inf")
     return None
 
 
