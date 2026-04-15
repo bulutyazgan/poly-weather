@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from types import TracebackType
 
 import httpx
@@ -28,8 +28,13 @@ KMH_TO_KNOTS = 1.0 / 1.852
 class OpenMeteoClient:
     """Async client for the Open-Meteo API (ensemble + HRRR forecasts)."""
 
-    def __init__(self, base_url: str = "https://api.open-meteo.com/v1") -> None:
-        self.client = httpx.AsyncClient(base_url=base_url, timeout=30.0)
+    def __init__(
+        self,
+        forecast_url: str = "https://api.open-meteo.com/v1",
+        ensemble_url: str = "https://ensemble-api.open-meteo.com/v1",
+    ) -> None:
+        self.client = httpx.AsyncClient(base_url=forecast_url, timeout=30.0)
+        self._ensemble_client = httpx.AsyncClient(base_url=ensemble_url, timeout=30.0)
 
     async def __aenter__(self) -> OpenMeteoClient:
         return self
@@ -41,6 +46,7 @@ class OpenMeteoClient:
         exc_tb: TracebackType | None,
     ) -> None:
         await self.client.aclose()
+        await self._ensemble_client.aclose()
 
     # -- Ensemble (GFS / ECMWF) ------------------------------------------
 
@@ -59,7 +65,7 @@ class OpenMeteoClient:
         api_model, member_count = model_map[model]
 
         try:
-            resp = await self.client.get(
+            resp = await self._ensemble_client.get(
                 "/ensemble",
                 params={
                     "latitude": station.lat,
@@ -101,11 +107,15 @@ class OpenMeteoClient:
                 celsius_to_fahrenheit(member_arrays[m][t_idx])
                 for m in range(actual_members)
             ]
+            # Open-Meteo returns naive ISO timestamps in UTC — make aware
+            vt = datetime.fromisoformat(time_str)
+            if vt.tzinfo is None:
+                vt = vt.replace(tzinfo=timezone.utc)
             results.append(
                 EnsembleForecast(
                     model_name=model,  # type: ignore[arg-type]
                     run_time=now,
-                    valid_time=datetime.fromisoformat(time_str),
+                    valid_time=vt,
                     station_id=station.station_id,
                     members=members_f,
                 )
@@ -119,12 +129,11 @@ class OpenMeteoClient:
         """Fetch HRRR hourly forecast from Open-Meteo."""
         try:
             resp = await self.client.get(
-                "/forecast",
+                "/gfs",
                 params={
                     "latitude": station.lat,
                     "longitude": station.lon,
                     "hourly": "temperature_2m,dewpoint_2m,wind_speed_10m",
-                    "models": "hrrr_conus",
                     "forecast_hours": 18,
                 },
             )
@@ -153,11 +162,15 @@ class OpenMeteoClient:
             if temp_c is None:
                 continue  # Skip records with missing temperature
 
+            vt = datetime.fromisoformat(time_str)
+            if vt.tzinfo is None:
+                vt = vt.replace(tzinfo=timezone.utc)
+
             results.append(
                 HRRRForecast(
                     station_id=station.station_id,
                     run_time=now,
-                    valid_time=datetime.fromisoformat(time_str),
+                    valid_time=vt,
                     temp_f=celsius_to_fahrenheit(temp_c),
                     dewpoint_f=celsius_to_fahrenheit(dp_c) if dp_c is not None else None,
                     wind_speed_kt=wind * KMH_TO_KNOTS if wind is not None else None,
@@ -170,6 +183,16 @@ class OpenMeteoClient:
 # ---------------------------------------------------------------------------
 # MesonetClient
 # ---------------------------------------------------------------------------
+
+
+# ICAO station ID → IEM network mapping
+_STATION_NETWORK: dict[str, str] = {
+    "KNYC": "NY_ASOS",
+    "KORD": "IL_ASOS",
+    "KLAX": "CA_ASOS",
+    "KDEN": "CO_ASOS",
+    "KMIA": "FL_ASOS",
+}
 
 
 class MesonetClient:
@@ -201,15 +224,17 @@ class MesonetClient:
         # Mesonet uses 3-letter IDs without K prefix
         short_id = station_id.lstrip("K") if station_id.startswith("K") else station_id
 
+        network = _STATION_NETWORK.get(station_id, "")
+
         try:
-            resp = await self.client.get(
-                "/obhistory.json",
-                params={
-                    "station": short_id,
-                    "date": start.strftime("%Y-%m-%d"),
-                    "tz": "UTC",
-                },
-            )
+            params: dict[str, str] = {
+                "station": short_id,
+                "date": start.strftime("%Y-%m-%d"),
+            }
+            if network:
+                params["network"] = network
+
+            resp = await self.client.get("/obhistory.json", params=params)
             resp.raise_for_status()
         except httpx.HTTPStatusError:
             logger.warning("Mesonet HTTP error for %s", station_id)
