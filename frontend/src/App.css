@@ -1,0 +1,283 @@
+/* Dashboard Layout */
+.dashboard {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  color: #e0e0e0;
+}
+
+.subtitle {
+  color: #888;
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+footer {
+  text-align: center;
+  color: #555;
+  margin-top: 2rem;
+  padding: 1rem 0;
+  border-top: 1px solid #222;
+  font-size: 0.85rem;
+}
+
+/* Status Bar */
+.status-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
+.status-bar.connected {
+  background: #0d2818;
+  color: #4caf50;
+}
+
+.status-bar.disconnected {
+  background: #2d1111;
+  color: #f44336;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Cards */
+.card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.card h2 {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+  color: #ccc;
+}
+
+.card h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.95rem;
+  color: #999;
+}
+
+/* Grid Layouts */
+.top-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .top-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1rem;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.metric-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #777;
+  letter-spacing: 0.05em;
+}
+
+.metric-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.metric-value.positive {
+  color: #4caf50;
+}
+
+.metric-value.negative {
+  color: #f44336;
+}
+
+.muted {
+  color: #666;
+  font-style: italic;
+}
+
+/* Station Chips */
+.station-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip {
+  padding: 0.4rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid #333;
+  background: transparent;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.15s ease;
+}
+
+.chip:hover {
+  border-color: #4fc3f7;
+  color: #4fc3f7;
+}
+
+.chip.active {
+  background: #4fc3f7;
+  color: #000;
+  border-color: #4fc3f7;
+  font-weight: 600;
+}
+
+/* Tables */
+.table-wrapper {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+th {
+  text-align: left;
+  padding: 0.5rem;
+  border-bottom: 2px solid #333;
+  color: #888;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+td {
+  padding: 0.5rem;
+  border-bottom: 1px solid #222;
+  color: #ccc;
+}
+
+tr.trade-row {
+  background: rgba(76, 175, 80, 0.05);
+}
+
+tr.skip-row {
+  opacity: 0.6;
+}
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge.trade {
+  background: #1b5e20;
+  color: #81c784;
+}
+
+.badge.skip {
+  background: #333;
+  color: #888;
+}
+
+.badge.confidence-high {
+  background: #1b5e20;
+  color: #81c784;
+}
+
+.badge.confidence-medium {
+  background: #e65100;
+  color: #ffb74d;
+}
+
+.badge.confidence-low {
+  background: #b71c1c;
+  color: #ef9a9a;
+}
+
+/* Schedule */
+.schedule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.schedule-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  font-size: 0.85rem;
+}
+
+.schedule-badge {
+  display: inline-block;
+  width: 50px;
+  text-align: center;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.schedule-badge.gfs_update {
+  background: #1a237e;
+  color: #7986cb;
+}
+
+.schedule-badge.ecmwf_update {
+  background: #004d40;
+  color: #80cbc4;
+}
+
+.schedule-badge.morning_refinement {
+  background: #e65100;
+  color: #ffb74d;
+}
+
+.schedule-time {
+  color: #4fc3f7;
+  font-family: monospace;
+  min-width: 80px;
+}
+
+.schedule-desc {
+  color: #888;
+}

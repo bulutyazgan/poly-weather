@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradebot"
+version = "0.1.0"
+description = "Polymarket weather prediction trading system"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "asyncio>=3.4",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.1",
+    "sqlalchemy>=2.0",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "fastapi>=0.109",
+    "uvicorn>=0.27",
+    "apscheduler>=3.10",
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "pandas>=2.2",
+    "scikit-learn>=1.4",
+    "py-clob-client>=0.34",
+    "websockets>=12.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.1",
+    "pytest-mock>=3.12",
+    "respx>=0.20",
+    "ruff>=0.2",
+    "mypy>=1.8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests requiring external services",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

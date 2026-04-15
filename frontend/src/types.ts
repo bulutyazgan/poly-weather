@@ -1,0 +1,51 @@
+export interface Station {
+  station_id: string;
+  city: string;
+  lat: number;
+  lon: number;
+  elevation_ft: number;
+  model_grid_elevation_ft: number;
+  lapse_rate_correction_f: number;
+  microclimate_flags: string[];
+}
+
+export interface Performance {
+  total_pnl: number;
+  win_rate: number;
+  trade_count: number;
+  signal_count: number;
+}
+
+export interface Signal {
+  market_id: string;
+  direction: string;
+  action: string;
+  edge: number;
+  kelly_size: number;
+  signal_timestamp: string;
+  station_id: string;
+  regime: string;
+  regime_confidence: string;
+  model_probability: number;
+  market_probability: number;
+  logged_at: string;
+}
+
+export interface ScheduleEvent {
+  time: string;
+  event_type: string;
+  description: string;
+}
+
+export interface ReliabilityBin {
+  bin_center: number;
+  observed_frequency: number;
+  count: number;
+}
+
+export interface Calibration {
+  brier_score: number | null;
+  brier_skill_score: number | null;
+  reliability_diagram: ReliabilityBin[] | null;
+  resolved_count: number;
+}
