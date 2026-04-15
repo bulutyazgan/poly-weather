@@ -40,11 +40,12 @@ MESONET_BASE = "https://mesonet.agron.iastate.edu/api/1"
 @respx.mock
 @pytest.mark.asyncio
 async def test_fetch_ensemble_gfs(nyc_station: Station) -> None:
-    # Build a mock response with 31 members, 2 timesteps
+    # Build a mock response with 30 members, 2 timesteps
+    # Open-Meteo uses zero-padded keys starting from 01
     hourly: dict[str, list] = {"time": ["2026-04-15T00:00", "2026-04-15T01:00"]}
-    for i in range(31):
+    for i in range(1, 31):
         # Temperatures in Celsius
-        hourly[f"temperature_2m_member{i}"] = [10.0 + i * 0.1, 11.0 + i * 0.1]
+        hourly[f"temperature_2m_member{i:02d}"] = [10.0 + i * 0.1, 11.0 + i * 0.1]
 
     payload = {"hourly": hourly}
 
@@ -61,7 +62,7 @@ async def test_fetch_ensemble_gfs(nyc_station: Station) -> None:
         assert isinstance(fc, EnsembleForecast)
         assert fc.model_name == "gfs"
         assert fc.station_id == "KNYC"
-        assert fc.member_count == 31
+        assert fc.member_count == 30
         # Check Fahrenheit conversion for first member of first timestep
         for member_val in fc.members:
             assert member_val > 40  # 10°C ≈ 50°F, all should be > 40
@@ -74,9 +75,10 @@ async def test_fetch_ensemble_gfs(nyc_station: Station) -> None:
 @respx.mock
 @pytest.mark.asyncio
 async def test_fetch_ensemble_ecmwf(nyc_station: Station) -> None:
+    # Open-Meteo ECMWF (ecmwf_ifs025) uses zero-padded keys, 50 members
     hourly: dict[str, list] = {"time": ["2026-04-15T12:00"]}
-    for i in range(51):
-        hourly[f"temperature_2m_member{i}"] = [20.0 + i * 0.05]
+    for i in range(1, 51):
+        hourly[f"temperature_2m_member{i:02d}"] = [20.0 + i * 0.05]
 
     payload = {"hourly": hourly}
 
@@ -91,9 +93,9 @@ async def test_fetch_ensemble_ecmwf(nyc_station: Station) -> None:
     assert len(results) == 1
     fc = results[0]
     assert fc.model_name == "ecmwf"
-    assert fc.member_count == 51
-    # 20°C = 68°F
-    assert abs(fc.members[0] - celsius_to_fahrenheit(20.0)) < 0.01
+    assert fc.member_count == 50
+    # 20.05°C (member01) → Fahrenheit
+    assert abs(fc.members[0] - celsius_to_fahrenheit(20.05)) < 0.01
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +114,7 @@ async def test_fetch_hrrr(nyc_station: Station) -> None:
         }
     }
 
-    respx.get(f"{OPEN_METEO_FORECAST_BASE}/gfs").mock(
+    respx.get(f"{OPEN_METEO_FORECAST_BASE}/forecast").mock(
         return_value=httpx.Response(200, json=payload)
     )
 

@@ -55,8 +55,8 @@ class OpenMeteoClient:
     ) -> list[EnsembleForecast]:
         """Fetch ensemble temperature forecast from Open-Meteo."""
         model_map = {
-            "gfs": ("gfs_seamless", 31),
-            "ecmwf": ("ecmwf_ifs", 51),
+            "gfs": ("gfs_seamless", 30),
+            "ecmwf": ("ecmwf_ifs025", 50),
         }
         if model not in model_map:
             logger.warning("Unknown ensemble model: %s", model)
@@ -88,10 +88,11 @@ class OpenMeteoClient:
         if not times:
             return []
 
-        # Collect member arrays
+        # Collect member arrays — Open-Meteo uses zero-padded keys
+        # starting from 01 (e.g. temperature_2m_member01 .. member30)
         member_arrays: list[list[float]] = []
-        for i in range(member_count):
-            key = f"temperature_2m_member{i}"
+        for i in range(1, member_count + 1):
+            key = f"temperature_2m_member{i:02d}"
             arr = hourly.get(key)
             if arr is not None:
                 member_arrays.append(arr)
@@ -129,12 +130,13 @@ class OpenMeteoClient:
         """Fetch HRRR hourly forecast from Open-Meteo."""
         try:
             resp = await self.client.get(
-                "/gfs",
+                "/forecast",
                 params={
                     "latitude": station.lat,
                     "longitude": station.lon,
                     "hourly": "temperature_2m,dewpoint_2m,wind_speed_10m",
                     "forecast_hours": 18,
+                    "model": "hrrr_conus",
                 },
             )
             resp.raise_for_status()
