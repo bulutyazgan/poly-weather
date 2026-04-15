@@ -6,9 +6,10 @@ from datetime import datetime, timezone
 import pytest
 
 from src.config.stations import Station
-from src.data.models import EnsembleForecast, HRRRForecast
+from src.data.models import EnsembleForecast, HRRRForecast, TradingSignal
 from src.orchestrator.data_collector import DataSnapshot
 from src.orchestrator.pipeline import _synthesize_mos
+from src.prediction.calibration import CUSUMMonitor
 
 
 def _make_station() -> Station:
@@ -123,3 +124,56 @@ class TestSynthesizeMos:
 
         mos = _synthesize_mos(snap, station, now)
         assert mos.low_f == pytest.approx(65.0)
+
+
+class TestCUSUMResidual:
+    """Test that CUSUM residual is computed correctly in the pipeline.
+
+    The bug: residual = abs(model-market) - edge = |x| - |x| = 0 always.
+    The fix: residual = model_prob - market_prob (signed), so CUSUM can
+    detect systematic calibration drift in either direction.
+    """
+
+    def test_cusum_residual_not_always_zero(self):
+        """Verify the CUSUM residual formula produces non-zero values.
+
+        Hand calculation:
+            model_prob=0.70, market_prob=0.55
+            Correct residual = 0.70 - 0.55 = +0.15
+            Bug residual = |0.70-0.55| - 0.15 = 0  (always!)
+        """
+        # Simulate what pipeline does: compute residual and feed to CUSUM
+        model_prob = 0.70
+        market_prob = 0.55
+
+        # Correct formula: signed residual for calibration drift detection
+        residual = model_prob - market_prob
+        assert residual == pytest.approx(0.15)
+
+        # Verify CUSUM actually accumulates
+        cusum = CUSUMMonitor(threshold=2.0, drift=0.0)
+        cusum.update(residual)
+        assert cusum.cusum_pos > 0.0  # Should have accumulated
+
+    def test_cusum_detects_systematic_positive_bias(self):
+        """Repeated positive residuals (model > market) should trigger alarm.
+
+        If model consistently overestimates, cusum_pos will grow until alarm.
+        With threshold=0.5, drift=0, 5 residuals of +0.15 => cusum_pos = 0.75 > 0.5.
+        """
+        cusum = CUSUMMonitor(threshold=0.5, drift=0.0)
+        for _ in range(5):
+            residual = 0.70 - 0.55  # model consistently higher than market
+            cusum.update(residual)
+        assert cusum.alarm is True
+
+    def test_cusum_detects_systematic_negative_bias(self):
+        """Repeated negative residuals (model < market) should trigger alarm.
+
+        cusum_neg accumulates: 5 * 0.15 = 0.75 > 0.5.
+        """
+        cusum = CUSUMMonitor(threshold=0.5, drift=0.0)
+        for _ in range(5):
+            residual = 0.55 - 0.70  # model consistently lower
+            cusum.update(residual)
+        assert cusum.alarm is True

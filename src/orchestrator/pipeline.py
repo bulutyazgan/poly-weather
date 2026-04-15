@@ -283,8 +283,11 @@ class TradingPipeline:
             self._prediction_log.log(log_entry)
 
             # CUSUM monitoring (update even when blocked — tracks ongoing state)
+            # Signed residual: positive = model overestimates vs market,
+            # negative = model underestimates. CUSUM tracks both directions
+            # via cusum_pos and cusum_neg to detect systematic calibration drift.
             if self._cusum is not None:
-                residual = abs(model_prob - market_prob) - signal.edge
+                residual = model_prob - market_prob
                 self._cusum.update(residual)
 
         # -- Post-trade checks -----------------------------------------------
