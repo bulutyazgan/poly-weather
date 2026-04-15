@@ -20,6 +20,8 @@ class EnsembleForecast(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def mean(self) -> float:
+        if not self.members:
+            return 0.0
         return float(np.mean(self.members))
 
     @computed_field  # type: ignore[prop-decorator]
