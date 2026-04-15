@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timezone
 
 from src.config.stations import get_stations, Station
 from src.data.models import (
+    EnsembleForecast,
     MarketContract,
     MOSForecast,
     TradingSignal,
@@ -129,23 +130,24 @@ class TradingPipeline:
                 errors += 1
                 continue
 
-            # Build probability distribution
-            try:
-                mos = _synthesize_mos(snap, station, now)
-                distribution = self._prob_engine.compute_distribution(
-                    mos=mos,
-                    gfs_ensemble=snap.gfs_ensemble,
-                    ecmwf_ensemble=snap.ecmwf_ensemble,
-                    station=station,
-                )
-            except Exception:
-                logger.exception("Probability distribution failed for %s", station.station_id)
-                errors += 1
-                continue
-
-            # Evaluate each market contract
+            # Evaluate each market contract with a date-matched distribution
             for contract in snap.market_contracts:
                 try:
+                    # Build distribution matched to this contract's resolution date
+                    mos = _synthesize_mos(snap, station, now, contract.resolution_date)
+                    gfs_for_date = _pick_ensemble_for_date(
+                        snap.gfs_ensemble_all, contract.resolution_date
+                    )
+                    ecmwf_for_date = _pick_ensemble_for_date(
+                        snap.ecmwf_ensemble_all, contract.resolution_date
+                    )
+                    distribution = self._prob_engine.compute_distribution(
+                        mos=mos,
+                        gfs_ensemble=gfs_for_date,
+                        ecmwf_ensemble=ecmwf_for_date,
+                        station=station,
+                    )
+
                     model_prob = self._prob_engine.compute_bucket_probability(
                         distribution,
                         contract.temp_bucket_low,
@@ -352,40 +354,79 @@ class TradingPipeline:
         )
 
 
-def _synthesize_mos(snap: DataSnapshot, station: Station, now: datetime) -> MOSForecast:
+def _pick_ensemble_for_date(
+    forecasts: list[EnsembleForecast],
+    target_date: date,
+) -> EnsembleForecast | None:
+    """Pick the ensemble forecast with the highest Tmax for a target date.
+
+    Scans all ensemble hours on the target date (or within ±12h of noon)
+    and returns the one whose max member is highest — that member at
+    that hour is the best Tmax estimate from the ensemble.
+    """
+    if not forecasts:
+        return None
+
+    noon_utc = datetime.combine(target_date, time(12, 0), tzinfo=timezone.utc)
+    # Gather all forecasts on the target date (midnight-midnight UTC,
+    # extended by ±6h to capture US afternoon heating in UTC terms)
+    candidates = [
+        f for f in forecasts
+        if abs((f.valid_time - noon_utc).total_seconds()) <= 18 * 3600
+        and f.members
+    ]
+    if not candidates:
+        return None
+
+    # Return the forecast with the highest max-member (= best Tmax signal)
+    return max(candidates, key=lambda f: max(f.members))
+
+
+def _synthesize_mos(
+    snap: DataSnapshot,
+    station: Station,
+    now: datetime,
+    target_date: date | None = None,
+) -> MOSForecast:
     """Create a synthetic MOS forecast from available weather data.
 
-    For daily Tmax estimation:
-      1. HRRR (preferred): hourly forecasts — max across hours ≈ daily Tmax.
-      2. Ensemble fallback: stored forecast is for a single valid time, NOT
-         the daily max.  Use max of ensemble members as a conservative
-         upper-bound estimate rather than the mean (which would be 10-20°F
-         cold-biased for Tmax).
+    Matches forecast data to the contract's resolution date:
+      1. GFS/ECMWF hourly max across the target date's daytime hours
+         (12-00 UTC ≈ 8am-8pm EDT) gives a direct Tmax estimate.
+      2. HRRR max (only if target_date is today — HRRR is ≤18h ahead).
       3. Hard fallback: 70°F.
     """
+    if target_date is None:
+        target_date = now.date()
+
     high: float | None = None
 
-    # HRRR hourly forecasts — max across hours is the best Tmax proxy
-    if snap.hrrr:
-        high = max(h.temp_f for h in snap.hrrr)
+    # Use ensemble hourly data matched to the target date's daytime window
+    gfs_day = _pick_ensemble_for_date(snap.gfs_ensemble_all, target_date)
+    ecmwf_day = _pick_ensemble_for_date(snap.ecmwf_ensemble_all, target_date)
 
-    # Ensemble fallback: max member is a conservative upper-bound for Tmax.
-    # The ensemble mean at a single time point systematically underestimates
-    # daily Tmax by ~10-20°F depending on the valid time vs peak heating.
-    if high is None and snap.gfs_ensemble is not None:
-        high = max(snap.gfs_ensemble.members)
-    if high is None and snap.ecmwf_ensemble is not None:
-        high = max(snap.ecmwf_ensemble.members)
+    candidates: list[float] = []
 
-    if high is None:
-        high = 70.0  # last resort fallback
+    # Ensemble Tmax from date-matched hour
+    if gfs_day is not None:
+        candidates.append(max(gfs_day.members))
+    if ecmwf_day is not None:
+        candidates.append(max(ecmwf_day.members))
+
+    # HRRR: only valid for today (≤18h ahead), but has actual hourly temps
+    # spanning daytime heating — often captures Tmax better than a single
+    # ensemble time step
+    if snap.hrrr and target_date == now.date():
+        candidates.append(max(h.temp_f for h in snap.hrrr))
+
+    high = max(candidates) if candidates else 70.0
 
     return MOSForecast(
         station_id=station.station_id,
         run_time=now,
-        valid_date=now.date(),
+        valid_date=target_date,
         high_f=high,
-        low_f=high - 15.0,  # rough estimate
+        low_f=high - 15.0,
     )
 
 

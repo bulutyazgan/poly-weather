@@ -30,6 +30,9 @@ class DataSnapshot:
     timestamp: datetime
     gfs_ensemble: EnsembleForecast | None = None
     ecmwf_ensemble: EnsembleForecast | None = None
+    # Full hourly ensemble series (for per-contract date matching)
+    gfs_ensemble_all: list[EnsembleForecast] = field(default_factory=list)
+    ecmwf_ensemble_all: list[EnsembleForecast] = field(default_factory=list)
     hrrr: list[HRRRForecast] = field(default_factory=list)
     observations: list[Observation] = field(default_factory=list)
     market_contracts: list[MarketContract] = field(default_factory=list)
@@ -74,6 +77,7 @@ class DataCollector:
             async def _fetch_gfs():
                 try:
                     gfs = await self._weather.fetch_ensemble(station, model="gfs")
+                    snap.gfs_ensemble_all = gfs or []
                     snap.gfs_ensemble = _pick_daily_forecast(gfs, now) if gfs else None
                 except Exception:
                     logger.exception("GFS ensemble failed for %s", station.station_id)
@@ -81,6 +85,7 @@ class DataCollector:
             async def _fetch_ecmwf():
                 try:
                     ecmwf = await self._weather.fetch_ensemble(station, model="ecmwf")
+                    snap.ecmwf_ensemble_all = ecmwf or []
                     snap.ecmwf_ensemble = _pick_daily_forecast(ecmwf, now) if ecmwf else None
                 except Exception:
                     logger.exception("ECMWF ensemble failed for %s", station.station_id)

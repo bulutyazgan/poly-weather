@@ -34,21 +34,25 @@ def _make_snap(
     now = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
     snap = DataSnapshot(station_id="KNYC", timestamp=now)
     if gfs_members is not None:
-        snap.gfs_ensemble = EnsembleForecast(
+        gfs = EnsembleForecast(
             model_name="gfs",
             run_time=now,
             valid_time=now,
             station_id="KNYC",
             members=gfs_members,
         )
+        snap.gfs_ensemble = gfs
+        snap.gfs_ensemble_all = [gfs]
     if ecmwf_members is not None:
-        snap.ecmwf_ensemble = EnsembleForecast(
+        ecmwf = EnsembleForecast(
             model_name="ecmwf",
             run_time=now,
             valid_time=now,
             station_id="KNYC",
             members=ecmwf_members,
         )
+        snap.ecmwf_ensemble = ecmwf
+        snap.ecmwf_ensemble_all = [ecmwf]
     if hrrr_temps is not None:
         snap.hrrr = [
             HRRRForecast(
