@@ -14,8 +14,10 @@ from src.data.models import (
 from src.orchestrator.data_collector import DataCollector, DataSnapshot
 from src.prediction.probability_engine import ProbabilityEngine
 from src.prediction.regime_classifier import RegimeClassifier
+from src.orchestrator.signal_cache import CachedSignal, SignalCache
 from src.prediction.calibration import IsotonicCalibrator, CUSUMMonitor
 from src.trading.edge_detector import EdgeDetector
+from src.trading.exposure_tracker import ExposureTracker
 from src.trading.position_sizer import PositionSizer
 from src.trading.executor import OrderExecutor
 from src.verification.prediction_log import PredictionLog, SignalLogEntry
@@ -39,6 +41,8 @@ class TradingPipeline:
         paper_trader: PaperTrader,
         calibrator: IsotonicCalibrator | None = None,
         cusum: CUSUMMonitor | None = None,
+        signal_cache: SignalCache | None = None,
+        exposure_tracker: ExposureTracker | None = None,
     ) -> None:
         self._collector = collector
         self._prob_engine = prob_engine
@@ -50,6 +54,8 @@ class TradingPipeline:
         self._paper_trader = paper_trader
         self._calibrator = calibrator
         self._cusum = cusum
+        self._signal_cache = signal_cache
+        self._exposure_tracker = exposure_tracker
         self._last_model_update: datetime = datetime.now(tz=timezone.utc)
         self._previous_prices: dict[str, float] = {}
 
@@ -218,6 +224,20 @@ class TradingPipeline:
                     )
                     errors += 1
 
+        # Write model probabilities to signal cache for the price monitor
+        if self._signal_cache is not None:
+            cache_entries: dict[str, CachedSignal] = {}
+            for p in pending:
+                token_id = p["contract"].token_id
+                cache_entries[token_id] = CachedSignal(
+                    model_prob=p["model_prob"],
+                    regime=p["regime"],
+                    contract=p["contract"],
+                    station_id=p["station"].station_id,
+                    forecast_time=now,
+                )
+            self._signal_cache.update(cache_entries)
+
         # ================================================================
         # PASS 2 — Sizing & execution (correlation-aware)
         # ================================================================
@@ -240,11 +260,16 @@ class TradingPipeline:
             market_prob = p["market_prob"]
 
             if signal.action == "TRADE":
+                effective_exposure = (
+                    self._exposure_tracker.current
+                    if self._exposure_tracker is not None
+                    else current_exposure
+                )
                 size_usd = self._position_sizer.compute(
                     edge=signal.edge,
                     market_prob=market_prob,
                     bankroll=bankroll,
-                    current_exposure=current_exposure,
+                    current_exposure=effective_exposure,
                     ensemble_spread_pctile=regime.ensemble_spread_percentile,
                     direction=signal.direction,
                     active_station_count=active_station_count,
@@ -283,6 +308,8 @@ class TradingPipeline:
                         model_probability=model_prob,
                     )
                     current_exposure += size_usd
+                    if self._exposure_tracker is not None:
+                        self._exposure_tracker.add(size_usd)
                     trades_placed += 1
             else:
                 skips += 1
