@@ -105,24 +105,33 @@ class DataCollector:
             city_contracts = [c for c in all_contracts if c.city == city]
             snap.market_contracts = city_contracts
 
-            # Fetch prices concurrently
-            async def _fetch_price(contract):
+            # Fetch prices concurrently (both YES and NO tokens)
+            async def _fetch_price(token_id: str):
+                if not token_id:
+                    return
                 try:
-                    price = await self._clob.get_market_price(contract.token_id)
+                    price = await self._clob.get_market_price(token_id)
                     if price is not None:
-                        snap.market_prices[contract.token_id] = price
+                        snap.market_prices[token_id] = price
                 except Exception:
-                    logger.exception("Price fetch failed for %s", contract.token_id)
+                    logger.exception("Price fetch failed for %s", token_id)
 
             if city_contracts:
-                await asyncio.gather(*[_fetch_price(c) for c in city_contracts])
+                token_ids = []
+                for c in city_contracts:
+                    token_ids.append(c.token_id)
+                    if c.no_token_id:
+                        token_ids.append(c.no_token_id)
+                await asyncio.gather(*[_fetch_price(tid) for tid in token_ids])
 
             return snap
 
-        # Collect all stations concurrently
-        snapshots = await asyncio.gather(
-            *[_collect_station(city, station) for city, station in stations.items()]
-        )
+        # Collect stations sequentially to respect API rate limits
+        # (per-station weather fetches are still concurrent)
+        snapshots = []
+        for city, station in stations.items():
+            snap = await _collect_station(city, station)
+            snapshots.append(snap)
 
         self._snapshots.extend(snapshots)
         # Trim to rolling window to prevent unbounded memory growth

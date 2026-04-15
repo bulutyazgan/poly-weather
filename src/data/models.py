@@ -68,7 +68,8 @@ class Observation(BaseModel):
 class MarketContract(BaseModel):
     """A Polymarket temperature prediction contract."""
 
-    token_id: str
+    token_id: str  # YES outcome token
+    no_token_id: str = ""  # NO outcome token
     condition_id: str
     question: str  # e.g., "Will NYC high be 72-73°F on Apr 16?"
     city: str

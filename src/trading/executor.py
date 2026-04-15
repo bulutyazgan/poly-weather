@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 _STALE_MODEL_HOURS = 3.0
 _STALE_MARKET_MOVE_PCT = 0.03  # 3%
 _RESOLUTION_PROXIMITY_HOURS = 4.0
+_ADVERSE_SELECTION_THRESHOLD = 0.10
 
 
 class OrderExecutor:
@@ -27,6 +28,7 @@ class OrderExecutor:
             )
         self.clob_client = clob_client
         self.paper_trading = paper_trading
+        self._fill_log: list[dict] = []
 
     async def execute(
         self,
@@ -38,14 +40,10 @@ class OrderExecutor:
         if signal.action == "SKIP":
             return None
 
-        # Determine order side and price
-        if signal.direction == "BUY_YES":
-            side = "BUY"
-            price = market_price.ask  # lift the ask
-        else:
-            # BUY_NO means SELL the YES token
-            side = "SELL"
-            price = market_price.bid
+        # Always BUY — the caller passes the correct token_id
+        # (YES token for BUY_YES, NO token for BUY_NO)
+        side = "BUY"
+        price = market_price.ask  # lift the ask
 
         # Size is in USD; convert to shares: size_shares = amount_usd / price
         if price <= 0:
@@ -69,6 +67,50 @@ class OrderExecutor:
             price=price,
             timestamp=datetime.now(timezone.utc),
         )
+
+    def record_fill(
+        self,
+        token_id: str,
+        filled: bool,
+        pnl: float | None = None,
+    ) -> None:
+        """Record whether an order was filled and its P&L outcome."""
+        self._fill_log.append({
+            "token_id": token_id,
+            "filled": filled,
+            "pnl": pnl,
+        })
+
+    def get_fill_rate(self) -> float:
+        """Fraction of orders that were filled. Returns 0.0 if no records."""
+        if not self._fill_log:
+            return 0.0
+        filled_count = sum(1 for r in self._fill_log if r["filled"])
+        return filled_count / len(self._fill_log)
+
+    def get_adverse_selection_ratio(self) -> float | None:
+        """Difference between filled and unfilled win rates.
+
+        Returns filled_win_rate - unfilled_win_rate.
+        Negative means filled orders lose more often → being picked off.
+        Returns None if insufficient data.
+        """
+        filled_pnl = [r["pnl"] for r in self._fill_log if r["filled"] and r["pnl"] is not None]
+        unfilled_pnl = [r["pnl"] for r in self._fill_log if not r["filled"] and r["pnl"] is not None]
+
+        if not filled_pnl or not unfilled_pnl:
+            return None
+
+        filled_win_rate = sum(1 for p in filled_pnl if p > 0) / len(filled_pnl)
+        unfilled_win_rate = sum(1 for p in unfilled_pnl if p > 0) / len(unfilled_pnl)
+        return filled_win_rate - unfilled_win_rate
+
+    def is_being_picked_off(self) -> bool:
+        """True if adverse selection ratio is worse than threshold."""
+        ratio = self.get_adverse_selection_ratio()
+        if ratio is None:
+            return False
+        return ratio < -_ADVERSE_SELECTION_THRESHOLD
 
     async def check_stale_quotes(
         self,

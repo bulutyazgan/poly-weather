@@ -1,10 +1,11 @@
 """Polymarket API clients for weather prediction markets."""
 from __future__ import annotations
 
+import json
 import logging
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 
@@ -12,7 +13,7 @@ from src.data.models import MarketContract, MarketPrice
 
 logger = logging.getLogger(__name__)
 
-# City name normalization mapping
+# City name normalization mapping (Polymarket question text → our city key)
 CITY_MAP: dict[str, str] = {
     "New York City": "NYC",
     "New York": "NYC",
@@ -23,31 +24,25 @@ CITY_MAP: dict[str, str] = {
     "Miami": "Miami",
 }
 
-# Month name → number
-MONTH_MAP: dict[str, int] = {
-    "January": 1, "February": 2, "March": 3, "April": 4,
-    "May": 5, "June": 6, "July": 7, "August": 8,
-    "September": 9, "October": 10, "November": 11, "December": 12,
+# Our city key → Polymarket event slug fragment
+CITY_SLUG_MAP: dict[str, str] = {
+    "NYC": "nyc",
+    "Chicago": "chicago",
+    "LA": "los-angeles",
+    "Denver": "denver",
+    "Miami": "miami",
 }
 
-# Regex for temperature question parsing
-_CITY_PATTERN = "|".join(re.escape(c) for c in sorted(CITY_MAP.keys(), key=len, reverse=True))
-_DATE_PATTERN = r"(?P<month>\w+)\s+(?P<day>\d{1,2}),?\s+(?P<year>\d{4})"
-_BETWEEN_PATTERN = re.compile(
-    rf"Will the high temperature in (?P<city>{_CITY_PATTERN})\s+on\s+{_DATE_PATTERN}\s+"
-    rf"be between (?P<low>\d+)°F and (?P<high>\d+)°F\?",
-    re.IGNORECASE,
-)
-_AT_OR_ABOVE_PATTERN = re.compile(
-    rf"Will the high temperature in (?P<city>{_CITY_PATTERN})\s+on\s+{_DATE_PATTERN}\s+"
-    rf"be at or above (?P<low>\d+)°F\?",
-    re.IGNORECASE,
-)
-_BELOW_PATTERN = re.compile(
-    rf"Will the high temperature in (?P<city>{_CITY_PATTERN})\s+on\s+{_DATE_PATTERN}\s+"
-    rf"be below (?P<high>\d+)°F\?",
-    re.IGNORECASE,
-)
+# Month number → lowercase name for slug construction
+_MONTH_NAMES = [
+    "", "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+]
+
+# Regex for parsing groupItemTitle temperature buckets
+_BUCKET_RANGE = re.compile(r"(\d+)-(\d+)°F")
+_BUCKET_OR_BELOW = re.compile(r"(\d+)°F or below")
+_BUCKET_OR_HIGHER = re.compile(r"(\d+)°F or higher")
 
 
 def _lazy_import_clob_client():
@@ -60,6 +55,29 @@ def _lazy_import_clob_client():
 PyClobClient = None  # Will be set on first live-mode init
 
 
+def _build_event_slug(city: str, target_date: date) -> str:
+    """Build the Polymarket event slug for a city/date temperature market."""
+    city_slug = CITY_SLUG_MAP.get(city)
+    if city_slug is None:
+        raise ValueError(f"No slug mapping for city: {city}")
+    month_name = _MONTH_NAMES[target_date.month]
+    return f"highest-temperature-in-{city_slug}-on-{month_name}-{target_date.day}-{target_date.year}"
+
+
+def _parse_bucket(label: str) -> tuple[float, float] | None:
+    """Parse a groupItemTitle like '80-81°F', '79°F or below', '98°F or higher'."""
+    m = _BUCKET_RANGE.search(label)
+    if m:
+        return float(m.group(1)), float(m.group(2))
+    m = _BUCKET_OR_BELOW.search(label)
+    if m:
+        return float("-inf"), float(m.group(1))
+    m = _BUCKET_OR_HIGHER.search(label)
+    if m:
+        return float(m.group(1)), float("inf")
+    return None
+
+
 class GammaClient:
     """Fetches market metadata from Polymarket Gamma API."""
 
@@ -69,113 +87,101 @@ class GammaClient:
     async def close(self) -> None:
         await self.client.aclose()
 
-    async def fetch_weather_markets(self, active: bool = True) -> list[MarketContract]:
-        """Fetch all active weather/temperature markets.
+    async def fetch_weather_markets(
+        self,
+        cities: list[str] | None = None,
+        lookahead_days: int = 3,
+    ) -> list[MarketContract]:
+        """Fetch active temperature markets by constructing event slugs.
 
-        Queries GET /markets with temperature tag filters.
-        Parses each market question to extract weather data.
-        Returns only "Yes" outcome tokens.
+        Queries the Gamma API /events endpoint with exact slug lookups
+        for each city/date combination. Returns Yes-outcome contracts
+        for all temperature buckets found.
+
+        Args:
+            cities: City keys to query (defaults to all in CITY_SLUG_MAP).
+            lookahead_days: Number of days from today to query (default 3).
         """
-        params: dict[str, str] = {}
-        if active:
-            params["active"] = "true"
-            params["closed"] = "false"
-        params["tag"] = "temperature"
+        if cities is None:
+            cities = list(CITY_SLUG_MAP.keys())
 
-        resp = await self.client.get("/markets", params=params)
-        resp.raise_for_status()
-        markets_data = resp.json()
+        today = datetime.now(tz=timezone.utc).date()
+        target_dates = [today + timedelta(days=d) for d in range(lookahead_days)]
 
         contracts: list[MarketContract] = []
-        for market in markets_data:
-            question = market.get("question", "")
-            parsed = self.parse_temperature_question(question)
-            if parsed is None:
-                continue
+        for city in cities:
+            for target_date in target_dates:
+                slug = _build_event_slug(city, target_date)
+                event_contracts = await self._fetch_event_contracts(
+                    slug, city, target_date
+                )
+                contracts.extend(event_contracts)
 
-            tokens = market.get("tokens", [])
-            condition_id = market.get("condition_id", "")
-
-            for token in tokens:
-                if token.get("outcome") == "Yes":
-                    contracts.append(
-                        MarketContract(
-                            token_id=token["token_id"],
-                            condition_id=condition_id,
-                            question=question,
-                            city=parsed["city"],
-                            resolution_date=parsed["resolution_date"],
-                            temp_bucket_low=parsed["temp_bucket_low"],
-                            temp_bucket_high=parsed["temp_bucket_high"],
-                            outcome="Yes",
-                        )
-                    )
+        logger.info(
+            "Fetched %d temperature contracts across %d cities, %d dates",
+            len(contracts), len(cities), len(target_dates),
+        )
         return contracts
 
-    @staticmethod
-    def parse_temperature_question(question: str) -> dict | None:
-        """Parse a Polymarket temperature question string.
+    async def _fetch_event_contracts(
+        self, slug: str, city: str, target_date: date
+    ) -> list[MarketContract]:
+        """Fetch contracts for a single event slug."""
+        try:
+            resp = await self.client.get("/events", params={"slug": slug})
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Gamma API request failed for %s: %s", slug, exc)
+            return []
 
-        Returns dict with city, temp_bucket_low, temp_bucket_high, resolution_date
-        or None if the question can't be parsed as a temperature market.
-        """
-        for pattern, handler in [
-            (_BETWEEN_PATTERN, _handle_between),
-            (_AT_OR_ABOVE_PATTERN, _handle_at_or_above),
-            (_BELOW_PATTERN, _handle_below),
-        ]:
-            m = pattern.match(question)
-            if m:
-                return handler(m)
-        return None
+        events = resp.json()
+        if not events:
+            logger.debug("No event found for slug: %s", slug)
+            return []
 
+        event = events[0]
+        markets = event.get("markets", [])
+        contracts: list[MarketContract] = []
 
-def _parse_date(m: re.Match) -> date | None:
-    month_name = m.group("month")
-    month = MONTH_MAP.get(month_name)
-    if month is None:
-        return None
-    return date(int(m.group("year")), month, int(m.group("day")))
+        for market in markets:
+            if market.get("closed"):
+                continue
 
+            label = market.get("groupItemTitle", "")
+            bucket = _parse_bucket(label)
+            if bucket is None:
+                continue
 
-def _normalize_city(raw: str) -> str:
-    return CITY_MAP.get(raw, raw)
+            token_ids_raw = market.get("clobTokenIds", "[]")
+            try:
+                token_ids = json.loads(token_ids_raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
 
+            if not token_ids:
+                continue
 
-def _handle_between(m: re.Match) -> dict | None:
-    d = _parse_date(m)
-    if d is None:
-        return None
-    return {
-        "city": _normalize_city(m.group("city")),
-        "temp_bucket_low": float(m.group("low")),
-        "temp_bucket_high": float(m.group("high")),
-        "resolution_date": d,
-    }
+            # First token ID is the Yes outcome, second is No
+            yes_token_id = token_ids[0]
+            no_token_id = token_ids[1] if len(token_ids) > 1 else ""
+            condition_id = market.get("conditionId", "")
+            question = market.get("question", label)
 
+            contracts.append(
+                MarketContract(
+                    token_id=yes_token_id,
+                    no_token_id=no_token_id,
+                    condition_id=condition_id,
+                    question=question,
+                    city=city,
+                    resolution_date=target_date,
+                    temp_bucket_low=bucket[0],
+                    temp_bucket_high=bucket[1],
+                    outcome="Yes",
+                )
+            )
 
-def _handle_at_or_above(m: re.Match) -> dict | None:
-    d = _parse_date(m)
-    if d is None:
-        return None
-    return {
-        "city": _normalize_city(m.group("city")),
-        "temp_bucket_low": float(m.group("low")),
-        "temp_bucket_high": float("inf"),
-        "resolution_date": d,
-    }
-
-
-def _handle_below(m: re.Match) -> dict | None:
-    d = _parse_date(m)
-    if d is None:
-        return None
-    return {
-        "city": _normalize_city(m.group("city")),
-        "temp_bucket_low": float("-inf"),
-        "temp_bucket_high": float(m.group("high")),
-        "resolution_date": d,
-    }
+        return contracts
 
 
 class CLOBClient:

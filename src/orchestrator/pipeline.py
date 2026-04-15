@@ -245,10 +245,18 @@ class TradingPipeline:
                     timestamp=signal.timestamp,
                 )
 
+                # Select correct token and price for the trade direction
+                if signal.direction == "BUY_NO" and contract.no_token_id:
+                    exec_token = contract.no_token_id
+                    exec_price = snap.market_prices.get(contract.no_token_id, price)
+                else:
+                    exec_token = contract.token_id
+                    exec_price = price
+
                 trade_record = await self._executor.execute(
                     signal=signal,
-                    token_id=contract.token_id,
-                    market_price=price,
+                    token_id=exec_token,
+                    market_price=exec_price,
                 )
 
                 if trade_record is not None:

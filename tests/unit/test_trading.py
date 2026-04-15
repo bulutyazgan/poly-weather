@@ -330,6 +330,40 @@ class TestOrderExecutor:
         assert isinstance(record, TradeRecord)
         assert record.direction == "BUY_YES"
         assert record.amount_usd == 2.50
+        # BUY_YES uses BUY side on YES token
+        call_kwargs = mock_clob.place_limit_order.call_args
+        assert call_kwargs.kwargs["side"] == "BUY"
+        assert call_kwargs.kwargs["token_id"] == "tok_abc"
+        mock_clob.place_limit_order.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_buy_no_buys_no_token(self):
+        """BUY_NO signal should BUY the NO token (not SELL the YES token).
+
+        The caller is responsible for passing the NO token_id and its price.
+        The executor always uses BUY side.
+        """
+        executor, mock_clob = self._make_executor()
+        signal = TradingSignal(
+            market_id="market_1",
+            direction="BUY_NO",
+            action="TRADE",
+            edge=0.15,
+            kelly_size=2.50,
+            timestamp=datetime.now(timezone.utc),
+        )
+        no_price = _make_market_price(token_id="tok_no_abc", bid=0.38, ask=0.42)
+        record = await executor.execute(
+            signal, token_id="tok_no_abc", market_price=no_price
+        )
+
+        assert record is not None
+        assert record.direction == "BUY_NO"
+        # Must BUY the NO token at ask, not SELL the YES token
+        call_kwargs = mock_clob.place_limit_order.call_args
+        assert call_kwargs.kwargs["side"] == "BUY"
+        assert call_kwargs.kwargs["token_id"] == "tok_no_abc"
+        assert call_kwargs.kwargs["price"] == 0.42  # NO ask price
         mock_clob.place_limit_order.assert_awaited_once()
 
     @pytest.mark.asyncio
