@@ -209,6 +209,24 @@ tr.skip-row {
   opacity: 0.6;
 }
 
+tr.trade-win {
+  background: rgba(76, 175, 80, 0.08);
+}
+
+tr.trade-loss {
+  background: rgba(244, 67, 54, 0.08);
+}
+
+td.positive {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+td.negative {
+  color: #f44336;
+  font-weight: 600;
+}
+
 /* Badges */
 .badge {
   display: inline-block;
@@ -225,6 +243,31 @@ tr.skip-row {
 }
 
 .badge.skip {
+  background: #333;
+  color: #888;
+}
+
+.badge.buy-yes {
+  background: #1b5e20;
+  color: #81c784;
+}
+
+.badge.buy-no {
+  background: #4a148c;
+  color: #ce93d8;
+}
+
+.badge.outcome-yes {
+  background: #1b5e20;
+  color: #81c784;
+}
+
+.badge.outcome-no {
+  background: #b71c1c;
+  color: #ef9a9a;
+}
+
+.badge.pending {
   background: #333;
   color: #888;
 }

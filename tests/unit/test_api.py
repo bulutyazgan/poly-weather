@@ -242,6 +242,66 @@ async def test_get_performance_empty():
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("_populated_state")
+async def test_get_trades():
+    """Trades endpoint returns paper trade records."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/trades")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    trade = data[0]
+    assert trade["direction"] == "BUY_YES"
+    assert trade["city"] == "NYC"
+    assert trade["resolved"] is True
+    assert trade["outcome"] is True
+    assert trade["pnl"] is not None
+    assert trade["pnl"] > 0
+    assert trade["entry_price"] == 0.55
+    assert trade["amount_usd"] == 10.0
+    assert "temp_bucket_low" in trade
+    assert "temp_bucket_high" in trade
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_populated_state")
+async def test_get_trades_filter_resolved():
+    """Trades endpoint filters by status=resolved."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/trades?status=resolved")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert all(t["resolved"] for t in data)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_populated_state")
+async def test_get_trades_filter_pending():
+    """Trades endpoint returns empty for status=pending when all resolved."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/trades?status=pending")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_empty_state")
+async def test_get_trades_empty():
+    """Trades endpoint returns empty list when no state is set."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/trades")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.anyio
 @pytest.mark.usefixtures("_empty_state")
 async def test_get_signals_empty():
     """Signals endpoint returns empty list when no state is set."""

@@ -6,7 +6,8 @@ import { SignalTable } from "./components/SignalTable";
 import { CalibrationChart } from "./components/CalibrationChart";
 import { ScheduleView } from "./components/ScheduleView";
 import { StatusBar } from "./components/StatusBar";
-import type { Calibration, Performance, ScheduleEvent, Signal, Station } from "./types";
+import { TradeTable } from "./components/TradeTable";
+import type { Calibration, Performance, ScheduleEvent, Signal, Station, Trade } from "./types";
 import "./App.css";
 
 function App() {
@@ -17,6 +18,8 @@ function App() {
   const stations = useApi<Station[]>("/api/stations", 60000);
   const calibration = useApi<Calibration>("/api/calibration", 30000);
   const schedule = useApi<ScheduleEvent[]>("/api/schedule", 60000);
+
+  const trades = useApi<Trade[]>("/api/trades?limit=50", 15000);
 
   const signalPath = selectedStation
     ? `/api/signals?station=${selectedStation}&limit=50`
@@ -45,6 +48,8 @@ function App() {
           selected={selectedStation}
           onSelect={setSelectedStation}
         />
+
+        <TradeTable trades={trades.data} loading={trades.loading} />
 
         <SignalTable signals={signals.data} loading={signals.loading} />
 

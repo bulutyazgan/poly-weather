@@ -34,6 +34,22 @@ export interface Signal {
   logged_at: string;
 }
 
+export interface Trade {
+  trade_id: string;
+  direction: string;
+  question: string;
+  city: string;
+  resolution_date: string;
+  temp_bucket_low: number;
+  temp_bucket_high: number;
+  entry_price: number;
+  amount_usd: number;
+  model_probability: number | null;
+  resolved: boolean;
+  outcome: boolean | null;
+  pnl: number | null;
+}
+
 export interface ScheduleEvent {
   time: string;
   event_type: string;

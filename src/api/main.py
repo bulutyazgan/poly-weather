@@ -128,6 +128,30 @@ async def get_schedule():
     ]
 
 
+@app.get("/api/trades")
+async def list_trades(status: str | None = None, limit: int = 100):
+    """Return paper trade records, optionally filtered by status.
+
+    Query params:
+        status: "resolved", "pending", or None (all)
+        limit: max records returned (default 100)
+    """
+    if not _paper_trader:
+        return []
+
+    trades = list(_paper_trader._trades.values())
+
+    if status == "resolved":
+        trades = [t for t in trades if t["resolved"]]
+    elif status == "pending":
+        trades = [t for t in trades if not t["resolved"]]
+
+    # Most recent first (by trade_id creation order, reversed)
+    trades = trades[-limit:][::-1]
+
+    return [_trade_to_dict(t) for t in trades]
+
+
 @app.get("/api/calibration")
 async def get_calibration():
     """Return calibration metrics from resolved paper trades.
@@ -184,6 +208,27 @@ async def get_calibration():
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _trade_to_dict(trade: dict) -> dict:
+    """Convert a paper trade record to a JSON-serializable dict."""
+    signal = trade["signal"]
+    contract = trade["contract"]
+    return {
+        "trade_id": trade["trade_id"],
+        "direction": signal.direction,
+        "question": contract.question,
+        "city": contract.city,
+        "resolution_date": contract.resolution_date.isoformat(),
+        "temp_bucket_low": contract.temp_bucket_low,
+        "temp_bucket_high": contract.temp_bucket_high,
+        "entry_price": trade["entry_price"],
+        "amount_usd": trade["amount_usd"],
+        "model_probability": trade.get("model_probability"),
+        "resolved": trade["resolved"],
+        "outcome": trade["outcome"],
+        "pnl": trade["pnl"],
+    }
+
 
 def _entry_to_dict(entry) -> dict:
     """Convert a SignalLogEntry to a JSON-serializable dict."""
