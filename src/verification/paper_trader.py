@@ -118,7 +118,7 @@ class PaperTrader:
 
     def total_pnl(self) -> float:
         """Sum PnL across all resolved trades."""
-        return sum(t["pnl"] for t in self._trades.values() if t["resolved"])
+        return float(sum(t["pnl"] for t in self._trades.values() if t["resolved"]))
 
     def win_rate(self) -> float:
         """Fraction of resolved trades with positive PnL."""
