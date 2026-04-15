@@ -28,12 +28,15 @@ class SignalLogEntry:
 class PredictionLog:
     """In-memory log of all prediction signals (including SKIPs)."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_entries: int = 50_000) -> None:
         self._entries: list[SignalLogEntry] = []
+        self._max_entries = max_entries
 
     def log(self, entry: SignalLogEntry) -> None:
-        """Append a signal log entry."""
+        """Append a signal log entry, trimming oldest if at capacity."""
         self._entries.append(entry)
+        if len(self._entries) > self._max_entries:
+            self._entries = self._entries[-self._max_entries :]
 
     def get_all(self) -> list[SignalLogEntry]:
         """Return all entries."""
