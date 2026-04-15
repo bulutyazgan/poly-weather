@@ -74,6 +74,7 @@ class MarketContract(BaseModel):
     question: str  # e.g., "Will NYC high be 72-73°F on Apr 16?"
     city: str
     resolution_date: date
+    end_date_utc: datetime | None = None  # exact resolution time from Gamma API
     temp_bucket_low: float  # lower bound (Fahrenheit)
     temp_bucket_high: float  # upper bound (Fahrenheit)
     outcome: Literal["Yes", "No"]

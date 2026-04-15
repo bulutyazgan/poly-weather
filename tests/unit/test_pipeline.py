@@ -8,8 +8,9 @@ import pytest
 
 from src.config.stations import Station
 from src.data.models import EnsembleForecast, HRRRForecast, TradingSignal
+from src.data.models import MarketContract
 from src.orchestrator.data_collector import DataSnapshot
-from src.orchestrator.pipeline import _synthesize_mos
+from src.orchestrator.pipeline import _synthesize_mos, _resolution_utc
 from src.prediction.calibration import CUSUMMonitor
 from src.prediction.regime_classifier import RegimeClassifier
 
@@ -237,3 +238,66 @@ class TestRegimeClassifierWiring:
             ensemble_members=bimodal_members,
         )
         assert "bimodal_ensemble" in result.active_flags
+
+
+class TestResolutionUtc:
+    """Test _resolution_utc helper for correct resolution time computation."""
+
+    def _make_contract(self, end_date_utc=None):
+        from datetime import date
+        return MarketContract(
+            token_id="tok_1",
+            condition_id="0xcond",
+            question="Will NYC high be 80-81°F?",
+            city="NYC",
+            resolution_date=date(2026, 4, 16),
+            end_date_utc=end_date_utc,
+            temp_bucket_low=80.0,
+            temp_bucket_high=81.0,
+            outcome="Yes",
+        )
+
+    def test_uses_gamma_end_date_when_available(self):
+        """When Gamma provides endDate, use it exactly."""
+        end_dt = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
+        contract = self._make_contract(end_date_utc=end_dt)
+        assert _resolution_utc(contract) == end_dt
+
+    def test_fallback_uses_end_of_day_not_midnight(self):
+        """Without endDate, use 23:59:59 UTC (not 00:00:00 midnight).
+
+        The old bug used midnight UTC on resolution_date, which was the
+        START of the day — ~20-28h before actual resolution for US cities.
+        """
+        contract = self._make_contract()
+        result = _resolution_utc(contract)
+        # Should be end of April 16, not start
+        assert result.hour == 23
+        assert result.minute == 59
+        assert result.day == 16
+
+    def test_midnight_bug_would_cancel_early(self):
+        """Demonstrate the old bug: midnight UTC is ~24h before end-of-day.
+
+        At 12:00 UTC on April 15, with resolution_date=April 16:
+        Old bug: resolution = April 16 00:00 UTC → 12h to resolution
+        Fix:     resolution = April 16 23:59 UTC → 36h to resolution
+        The 4h threshold for cancellation would trigger at different times.
+        """
+        from datetime import time as dt_time
+
+        contract = self._make_contract()
+        now = datetime(2026, 4, 16, 20, 0, tzinfo=timezone.utc)
+
+        # Old bug: midnight UTC = already 20h in the past → negative hours
+        old_resolution = datetime.combine(
+            contract.resolution_date,
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+        old_hours = (old_resolution - now).total_seconds() / 3600.0
+        assert old_hours < 0  # would trigger premature cancellation!
+
+        # Fix: end of day
+        new_hours = (_resolution_utc(contract) - now).total_seconds() / 3600.0
+        assert new_hours > 0  # correctly shows 4h remaining

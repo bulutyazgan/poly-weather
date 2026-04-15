@@ -173,6 +173,17 @@ class GammaClient:
             except (ValueError, TypeError):
                 volume_24h = 0.0
 
+            # Parse exact resolution time from Gamma endDate
+            end_date_utc = None
+            end_date_str = market.get("endDate")
+            if end_date_str:
+                try:
+                    end_date_utc = datetime.fromisoformat(
+                        end_date_str.replace("Z", "+00:00")
+                    )
+                except (ValueError, TypeError):
+                    pass
+
             contracts.append(
                 MarketContract(
                     token_id=yes_token_id,
@@ -181,6 +192,7 @@ class GammaClient:
                     question=question,
                     city=city,
                     resolution_date=target_date,
+                    end_date_utc=end_date_utc,
                     temp_bucket_low=bucket[0],
                     temp_bucket_high=bucket[1],
                     outcome="Yes",

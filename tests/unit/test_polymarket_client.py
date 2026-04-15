@@ -138,6 +138,7 @@ class TestFetchWeatherMarkets:
         with patch("src.data.polymarket_client.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            mock_dt.fromisoformat = datetime.fromisoformat
             contracts = await client.fetch_weather_markets(
                 cities=["NYC"], lookahead_days=1
             )
@@ -164,6 +165,10 @@ class TestFetchWeatherMarkets:
         # Check real traded volume from Gamma (not book depth)
         assert below.volume_24h == pytest.approx(5000.0)
 
+        # Check end_date_utc is parsed from Gamma endDate
+        assert below.end_date_utc is not None
+        assert below.end_date_utc == datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
+
         # Check the "or higher" bucket
         above = next(c for c in contracts if c.token_id == "tok_above")
         assert above.temp_bucket_low == 98.0
@@ -187,6 +192,7 @@ class TestFetchWeatherMarkets:
         with patch("src.data.polymarket_client.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            mock_dt.fromisoformat = datetime.fromisoformat
             contracts = await client.fetch_weather_markets(
                 cities=["NYC"], lookahead_days=1
             )
@@ -207,6 +213,7 @@ class TestFetchWeatherMarkets:
         with patch("src.data.polymarket_client.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            mock_dt.fromisoformat = datetime.fromisoformat
             contracts = await client.fetch_weather_markets(
                 cities=["NYC"], lookahead_days=1
             )
@@ -226,6 +233,7 @@ class TestFetchWeatherMarkets:
         with patch("src.data.polymarket_client.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
             mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            mock_dt.fromisoformat = datetime.fromisoformat
             contracts = await client.fetch_weather_markets(
                 cities=["NYC"], lookahead_days=1
             )

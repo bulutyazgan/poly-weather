@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 from src.config.stations import get_stations, Station
 from src.data.models import (
@@ -160,11 +160,7 @@ class TradingPipeline:
                     market_prob = price.mid
                     current_prices[contract.token_id] = market_prob
 
-                    resolution_dt = datetime.combine(
-                        contract.resolution_date,
-                        datetime.min.time(),
-                        tzinfo=timezone.utc,
-                    )
+                    resolution_dt = _resolution_utc(contract)
                     hours_to_resolution = max(
                         0.0,
                         (resolution_dt - now).total_seconds() / 3600.0,
@@ -314,11 +310,7 @@ class TradingPipeline:
             min_hours = float("inf")
             for snap in snapshots:
                 for contract in snap.market_contracts:
-                    resolution_dt = datetime.combine(
-                        contract.resolution_date,
-                        datetime.min.time(),
-                        tzinfo=timezone.utc,
-                    )
+                    resolution_dt = _resolution_utc(contract)
                     h = (resolution_dt - now).total_seconds() / 3600.0
                     min_hours = min(min_hours, h)
             if min_hours < float("inf"):
@@ -382,4 +374,21 @@ def _synthesize_mos(snap: DataSnapshot, station: Station, now: datetime) -> MOSF
         valid_date=now.date(),
         high_f=high,
         low_f=high - 15.0,  # rough estimate
+    )
+
+
+def _resolution_utc(contract: MarketContract) -> datetime:
+    """Return the UTC resolution time for a contract.
+
+    Uses the Gamma API's endDate if available. Falls back to 23:59 UTC
+    on the resolution date (end-of-day), NOT midnight (start-of-day).
+    The old code used midnight UTC which was ~20-28h early for US cities.
+    """
+    if contract.end_date_utc is not None:
+        return contract.end_date_utc
+    # Fallback: end of resolution day in UTC
+    return datetime.combine(
+        contract.resolution_date,
+        time(23, 59, 59),
+        tzinfo=timezone.utc,
     )
