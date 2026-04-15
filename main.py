@@ -7,13 +7,17 @@ from src.config.settings import Settings
 from src.config.stations import get_stations
 from src.data.weather_client import OpenMeteoClient, MesonetClient
 from src.data.polymarket_client import GammaClient, CLOBClient
+from src.data.ws_feed import WebSocketFeed
 from src.orchestrator.data_collector import DataCollector
 from src.orchestrator.pipeline import TradingPipeline
+from src.orchestrator.price_monitor import PriceMonitor
 from src.orchestrator.scheduler import PipelineScheduler
+from src.orchestrator.signal_cache import SignalCache
 from src.prediction.probability_engine import ProbabilityEngine
 from src.prediction.regime_classifier import RegimeClassifier
 from src.prediction.calibration import IsotonicCalibrator, CUSUMMonitor
 from src.trading.edge_detector import EdgeDetector
+from src.trading.exposure_tracker import ExposureTracker
 from src.trading.position_sizer import PositionSizer
 from src.trading.executor import OrderExecutor
 from src.verification.prediction_log import PredictionLog
@@ -65,6 +69,8 @@ async def main():
     prediction_log = PredictionLog()
     paper_trader = PaperTrader()
     cusum = CUSUMMonitor(threshold=2.0)
+    signal_cache = SignalCache()
+    exposure_tracker = ExposureTracker()
 
     # Build pipeline
     pipeline = TradingPipeline(
@@ -77,6 +83,8 @@ async def main():
         prediction_log=prediction_log,
         paper_trader=paper_trader,
         cusum=cusum,
+        signal_cache=signal_cache,
+        exposure_tracker=exposure_tracker,
     )
 
     resolution_checker = ResolutionChecker(gamma=gamma, paper_trader=paper_trader)
@@ -105,6 +113,31 @@ async def main():
     result = await pipeline.run_cycle()
     logger.info("Initial cycle: %s", result)
 
+    # Start continuous price monitor
+    ws_feed = None
+    price_monitor = None
+    if settings.PRICE_MONITOR_ENABLED:
+        ws_feed = WebSocketFeed()
+        price_monitor = PriceMonitor(
+            ws_feed=ws_feed,
+            signal_cache=signal_cache,
+            edge_detector=edge_detector,
+            position_sizer=position_sizer,
+            exposure_tracker=exposure_tracker,
+            executor=executor,
+            prediction_log=prediction_log,
+            paper_trader=paper_trader,
+            cusum=cusum,
+            debounce_seconds=settings.PRICE_MONITOR_DEBOUNCE_S,
+            cooldown_seconds=settings.PRICE_MONITOR_COOLDOWN_S,
+            max_forecast_age_s=settings.PRICE_MONITOR_MAX_FORECAST_AGE_S,
+            bankroll=settings.BANKROLL,
+        )
+        await price_monitor.start()
+        logger.info("Price monitor started (debounce=%.0fs, cooldown=%.0fs)",
+                     settings.PRICE_MONITOR_DEBOUNCE_S,
+                     settings.PRICE_MONITOR_COOLDOWN_S)
+
     # Start scheduler in background
     await scheduler.start()
 
@@ -112,6 +145,10 @@ async def main():
     try:
         await server.serve()
     finally:
+        if price_monitor is not None:
+            await price_monitor.stop()
+        if ws_feed is not None:
+            await ws_feed.close()
         await scheduler.stop()
 
 
