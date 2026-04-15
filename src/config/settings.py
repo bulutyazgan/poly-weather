@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     MIN_HOURS_TO_RESOLUTION: int = 2
     MIN_MARKET_VOLUME: int = 2000
     MAX_MARKET_CERTAINTY: float = 0.92
+    MAX_EDGE: float = 0.25
     PAPER_TRADING: bool = True
 
     # API URLs

@@ -114,10 +114,10 @@ class TestEdgeDetector:
         assert abs(sig.edge - 0.08) < 1e-9
 
     def test_detect_edge_buy_no(self):
-        """model_prob=0.30, market_prob=0.55 -> BUY_NO, edge=0.25."""
+        """model_prob=0.35, market_prob=0.55 -> BUY_NO, edge=0.20."""
         det = self._make_detector()
         sig = det.evaluate(
-            model_prob=0.30,
+            model_prob=0.35,
             market_prob=0.55,
             regime=_make_regime(confidence="HIGH"),
             volume_24h=5000.0,
@@ -125,7 +125,7 @@ class TestEdgeDetector:
         )
         assert sig.action == "TRADE"
         assert sig.direction == "BUY_NO"
-        assert abs(sig.edge - 0.25) < 1e-9
+        assert abs(sig.edge - 0.20) < 1e-9
 
     def test_detect_edge_skip_low_volume(self):
         """volume < MIN_MARKET_VOLUME -> SKIP."""
@@ -208,6 +208,49 @@ class TestEdgeDetector:
         sig = det.evaluate(
             model_prob=0.70,
             market_prob=0.90,
+            regime=_make_regime(confidence="HIGH"),
+            volume_24h=5000.0,
+            hours_to_resolution=24.0,
+        )
+        assert sig.action == "SKIP"
+
+    def test_skip_implausible_edge(self):
+        """Edge > max_edge (default 25%) is rejected as model failure."""
+        from src.trading.edge_detector import EdgeDetector
+        det = EdgeDetector()
+        # 0.005 model_prob vs 0.50 market = 49.5% edge -> SKIP
+        sig = det.evaluate(
+            model_prob=0.005,
+            market_prob=0.50,
+            regime=_make_regime(confidence="HIGH"),
+            volume_24h=5000.0,
+            hours_to_resolution=24.0,
+        )
+        assert sig.action == "SKIP"
+        assert sig.edge > 0.25
+
+    def test_allow_plausible_edge(self):
+        """Edge within max_edge passes through to normal threshold check."""
+        from src.trading.edge_detector import EdgeDetector
+        det = EdgeDetector()
+        # 0.40 model vs 0.50 market = 10% edge -> TRADE (HIGH regime, threshold 8%)
+        sig = det.evaluate(
+            model_prob=0.40,
+            market_prob=0.50,
+            regime=_make_regime(confidence="HIGH"),
+            volume_24h=5000.0,
+            hours_to_resolution=24.0,
+        )
+        assert sig.action == "TRADE"
+
+    def test_custom_max_edge(self):
+        """Custom max_edge=0.15 -> tighter implausibility guard."""
+        from src.trading.edge_detector import EdgeDetector
+        det = EdgeDetector(max_edge=0.15)
+        # 0.30 model vs 0.50 market = 20% edge -> SKIP with max_edge=0.15
+        sig = det.evaluate(
+            model_prob=0.30,
+            market_prob=0.50,
             regime=_make_regime(confidence="HIGH"),
             volume_24h=5000.0,
             hours_to_resolution=24.0,

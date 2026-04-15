@@ -16,12 +16,14 @@ class EdgeDetector:
         min_volume: float = 2000.0,
         min_hours: float = 2.0,
         max_market_certainty: float = 0.92,
+        max_edge: float = 0.25,
     ) -> None:
         self.high_threshold = high_threshold
         self.medium_threshold = medium_threshold
         self.min_volume = min_volume
         self.min_hours = min_hours
         self.max_market_certainty = max_market_certainty
+        self.max_edge = max_edge
 
     def evaluate(
         self,
@@ -40,12 +42,14 @@ class EdgeDetector:
         edge = abs(model_prob - market_prob)
         direction = "BUY_YES" if model_prob > market_prob else "BUY_NO"
 
-        # Foregone conclusion guard: skip markets where the outcome is
-        # already near-certain.  When market_prob > 0.92 or < 0.08 the
-        # price reflects information (observed temps, late-breaking data)
-        # our forecast model doesn't have, and the risk/reward is terrible.
-        min_certainty = 1.0 - self.max_market_certainty
-        if market_prob > self.max_market_certainty or market_prob < min_certainty:
+        # Implausible edge guard: edges above max_edge almost certainly
+        # indicate a model failure (e.g. 0% model prob against 50% market).
+        #
+        # Foregone conclusion guard: skip near-certain markets where the
+        # price reflects information our forecast model doesn't have.
+        if edge > self.max_edge:
+            action = "SKIP"
+        elif market_prob > self.max_market_certainty or market_prob < (1.0 - self.max_market_certainty):
             action = "SKIP"
         elif regime.confidence == "LOW":
             action = "SKIP"

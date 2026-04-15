@@ -107,12 +107,33 @@ class TestProbabilityEngine:
         assert prob_wide < prob_narrow
 
     def test_compute_all_bucket_probabilities_sum_to_one(self) -> None:
-        """Probabilities across full range of 1F buckets should sum to ~1."""
-        dist = stats.norm(loc=72.0, scale=3.0)
-        buckets = [(float(t), float(t + 1)) for t in range(50, 100)]
+        """Probabilities across realistic range sum to ~1.
+
+        Uses 15 buckets (60-75F) centred on the distribution — this
+        captures >99% of the mass while keeping tail-clamping (prob_floor=0.005)
+        from inflating the sum significantly.
+        """
+        dist = stats.norm(loc=68.0, scale=2.0)
+        buckets = [(float(t), float(t + 1)) for t in range(60, 75)]
         probs = self.engine.compute_all_bucket_probabilities(dist, buckets)
         total = sum(probs.values())
-        assert abs(total - 1.0) < 0.01
+        assert abs(total - 1.0) < 0.05
+
+    def test_probability_floor_prevents_zero(self) -> None:
+        """Far-away bucket gets clamped to prob_floor, never exactly 0.0."""
+        dist = stats.norm(loc=55.0, scale=2.0)
+        # 85-90F is ~15 std deviations away — raw prob is 0.0
+        prob = self.engine.compute_bucket_probability(dist, 85.0, 90.0)
+        assert prob == 0.005  # default floor
+        assert prob > 0.0
+
+    def test_probability_ceil_prevents_one(self) -> None:
+        """Very wide bucket around mean gets clamped below 1.0."""
+        dist = stats.norm(loc=70.0, scale=0.1)
+        # Bucket covers almost all mass
+        prob = self.engine.compute_bucket_probability(dist, 50.0, 90.0)
+        assert prob == 0.995  # default ceil
+        assert prob < 1.0
 
     def test_mos_anchored_distribution(self) -> None:
         """Combined distribution centred on MOS, spread between the two ensembles."""

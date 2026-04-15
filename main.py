@@ -53,6 +53,7 @@ async def main():
         min_volume=settings.MIN_MARKET_VOLUME,
         min_hours=settings.MIN_HOURS_TO_RESOLUTION,
         max_market_certainty=settings.MAX_MARKET_CERTAINTY,
+        max_edge=settings.MAX_EDGE,
     )
     position_sizer = PositionSizer(
         kelly_fraction=settings.KELLY_FRACTION,
@@ -83,7 +84,7 @@ async def main():
 
     # Set API state
     from src.api.main import set_state
-    set_state(prediction_log, paper_trader, scheduler)
+    set_state(prediction_log, paper_trader, scheduler, cusum=cusum)
 
     # Start API server in background
     import uvicorn

@@ -54,9 +54,16 @@ class ProbabilityEngine:
         distribution: stats.rv_continuous,
         bucket_low: float,
         bucket_high: float,
+        prob_floor: float = 0.005,
+        prob_ceil: float = 0.995,
     ) -> float:
-        """P(bucket_low <= T < bucket_high) via CDF difference."""
-        return float(distribution.cdf(bucket_high) - distribution.cdf(bucket_low))
+        """P(bucket_low <= T < bucket_high) via CDF difference.
+
+        Clamps to [prob_floor, prob_ceil] to prevent overconfident 0%/100%
+        predictions that create phantom edges against any market price.
+        """
+        raw = float(distribution.cdf(bucket_high) - distribution.cdf(bucket_low))
+        return max(prob_floor, min(prob_ceil, raw))
 
     def compute_all_bucket_probabilities(
         self,
