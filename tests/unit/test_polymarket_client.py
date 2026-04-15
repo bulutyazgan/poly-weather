@@ -110,6 +110,11 @@ class TestBuildEventSlug:
         with pytest.raises(ValueError, match="No slug mapping"):
             _build_event_slug("UnknownCity", date(2026, 1, 1))
 
+    def test_alternate_slug_override(self):
+        """Can build slug with an alternate city_slug."""
+        assert _build_event_slug("NYC", date(2026, 4, 15), city_slug="new-york-city") == \
+            "highest-temperature-in-new-york-city-on-april-15-2026"
+
 
 # ---------------------------------------------------------------------------
 # GammaClient — fetch_weather_markets
@@ -240,6 +245,37 @@ class TestFetchWeatherMarkets:
         await client.close()
 
         assert contracts == []
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_falls_back_to_alternate_slug(self):
+        """When primary slug returns empty, tries alternates and finds contracts."""
+        target = date(2026, 4, 16)
+        markets = [_temp_market("80-81°F", yes_token="tok_alt")]
+        event_data = _gamma_event("new-york-city", target, markets)
+
+        # Primary slug (nyc) returns empty, alternate (new-york-city) returns data
+        def route_handler(request):
+            slug = request.url.params.get("slug", "")
+            if "new-york-city" in slug:
+                return httpx.Response(200, json=event_data)
+            return httpx.Response(200, json=[])
+
+        respx.get(f"{GAMMA_BASE}/events").mock(side_effect=route_handler)
+
+        client = GammaClient(base_url=GAMMA_BASE)
+        with patch("src.data.polymarket_client.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            mock_dt.fromisoformat = datetime.fromisoformat
+            contracts = await client.fetch_weather_markets(
+                cities=["NYC"], lookahead_days=1
+            )
+        await client.close()
+
+        assert len(contracts) == 1
+        assert contracts[0].token_id == "tok_alt"
+        assert contracts[0].city == "NYC"
 
 
 # ---------------------------------------------------------------------------

@@ -24,13 +24,23 @@ CITY_MAP: dict[str, str] = {
     "Miami": "Miami",
 }
 
-# Our city key → Polymarket event slug fragment
+# Our city key → Polymarket event slug fragment (primary + alternates)
 CITY_SLUG_MAP: dict[str, str] = {
     "NYC": "nyc",
     "Chicago": "chicago",
     "LA": "los-angeles",
     "Denver": "denver",
     "Miami": "miami",
+}
+
+# Alternate slug fragments to try when the primary slug returns no results.
+# Polymarket sometimes uses different naming conventions for the same city.
+_CITY_SLUG_ALTERNATES: dict[str, list[str]] = {
+    "NYC": ["new-york-city", "new-york"],
+    "LA": ["la", "los-angeles-ca"],
+    "Chicago": ["chicago-il"],
+    "Denver": ["denver-co"],
+    "Miami": ["miami-fl"],
 }
 
 # Month number → lowercase name for slug construction
@@ -55,9 +65,10 @@ def _lazy_import_clob_client():
 PyClobClient = None  # Will be set on first live-mode init
 
 
-def _build_event_slug(city: str, target_date: date) -> str:
+def _build_event_slug(city: str, target_date: date, city_slug: str | None = None) -> str:
     """Build the Polymarket event slug for a city/date temperature market."""
-    city_slug = CITY_SLUG_MAP.get(city)
+    if city_slug is None:
+        city_slug = CITY_SLUG_MAP.get(city)
     if city_slug is None:
         raise ValueError(f"No slug mapping for city: {city}")
     month_name = _MONTH_NAMES[target_date.month]
@@ -115,6 +126,27 @@ class GammaClient:
                 event_contracts = await self._fetch_event_contracts(
                     slug, city, target_date
                 )
+
+                # If primary slug found nothing, try alternate slugs
+                if not event_contracts:
+                    for alt_slug in _CITY_SLUG_ALTERNATES.get(city, []):
+                        alt_full = _build_event_slug(city, target_date, city_slug=alt_slug)
+                        event_contracts = await self._fetch_event_contracts(
+                            alt_full, city, target_date
+                        )
+                        if event_contracts:
+                            logger.info(
+                                "Found %s contracts via alternate slug %s",
+                                city, alt_slug,
+                            )
+                            break
+
+                if not event_contracts:
+                    logger.warning(
+                        "No contracts found for %s on %s (tried primary + alternates)",
+                        city, target_date,
+                    )
+
                 contracts.extend(event_contracts)
 
         logger.info(
