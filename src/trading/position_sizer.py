@@ -15,11 +15,13 @@ class PositionSizer:
         max_trade_usd: float = 3.0,
         max_bankroll_pct: float = 0.03,
         max_portfolio_exposure: float = 0.20,
+        min_trade_usd: float = 0.50,
     ) -> None:
         self.kelly_fraction = kelly_fraction
         self.max_trade_usd = max_trade_usd
         self.max_bankroll_pct = max_bankroll_pct
         self.max_portfolio_exposure = max_portfolio_exposure
+        self.min_trade_usd = min_trade_usd
 
     def compute(
         self,
@@ -86,4 +88,10 @@ class PositionSizer:
             remaining_exposure,
         )
 
-        return max(size, 0.0)
+        size = max(size, 0.0)
+
+        # Below minimum, the trade is uneconomical (fixed costs dominate)
+        if 0 < size < self.min_trade_usd:
+            return 0.0
+
+        return size

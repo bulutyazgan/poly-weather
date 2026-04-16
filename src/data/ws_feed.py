@@ -45,8 +45,9 @@ class WebSocketFeed:
         await feed.close()
     """
 
-    def __init__(self, ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market") -> None:
+    def __init__(self, ws_url: str = "wss://ws-subscriptions-clob.polymarket.com/ws/market", event_bus=None) -> None:
         self._ws_url = ws_url
+        self._event_bus = event_bus
         self._token_ids: list[str] = []
         self._price_cache: dict[str, MarketPrice] = {}
         self._shadow_bids: dict[str, list[list[float]]] = defaultdict(list)
@@ -115,6 +116,8 @@ class WebSocketFeed:
                 return
             except Exception:
                 logger.exception("WebSocket connection error — reconnecting in %.1fs", backoff)
+                if self._event_bus:
+                    self._event_bus.publish("ws_status", {"connected": False, "token_count": len(self._token_ids)})
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * _BACKOFF_FACTOR, _MAX_BACKOFF_S)
 
@@ -128,6 +131,8 @@ class WebSocketFeed:
 
         async with websockets.connect(self._ws_url) as ws:
             await self._send_subscription(ws)
+            if self._event_bus:
+                self._event_bus.publish("ws_status", {"connected": True, "token_count": len(self._token_ids)})
             async for raw in ws:
                 if self._closed:
                     break
@@ -144,11 +149,15 @@ class WebSocketFeed:
             await ws.send(msg)
 
     def _handle_raw(self, raw: str | bytes) -> None:
-        """Dispatch a raw message to the appropriate handler."""
+        """Dispatch a raw message to the appropriate handler.
+
+        Polymarket may send JSON arrays (batch messages) alongside the
+        expected dict messages.  Non-dict payloads are silently skipped.
+        """
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8", errors="replace")
         msg = parse_message(raw)
-        if msg is None:
+        if not isinstance(msg, dict):
             return
 
         event_type = msg.get("event_type") or msg.get("type", "")
@@ -177,28 +186,60 @@ class WebSocketFeed:
         self._update_cache_from_shadow(token_id)
 
     def _handle_price_change_event(self, msg: dict) -> None:
-        """Process a price change event."""
+        """Process a price change event.
+
+        price_change events carry the last trade price but no bid/ask.
+        If we already have book-derived bid/ask for this token, preserve
+        them and only update mid + timestamp.  Setting bid=ask=price
+        creates a zero-spread entry that makes the PriceMonitor
+        overestimate edge (it computes edge against ask, which would
+        equal the last trade price instead of the real ask).
+        """
         token_id = msg.get("asset_id", "")
         price = msg.get("price")
         if token_id and price is not None:
             p = float(price)
             now = datetime.now(timezone.utc)
-            self._price_cache[token_id] = MarketPrice(
-                token_id=token_id,
-                timestamp=now,
-                bid=p,
-                ask=p,
-                mid=p,
-                volume_24h=0.0,
-            )
+            existing = self._price_cache.get(token_id)
+            if existing is not None and existing.bid < existing.ask:
+                # Preserve book-derived bid/ask, update mid + timestamp
+                self._price_cache[token_id] = MarketPrice(
+                    token_id=token_id,
+                    timestamp=now,
+                    bid=existing.bid,
+                    ask=existing.ask,
+                    mid=p,
+                    volume_24h=existing.volume_24h,
+                )
+            else:
+                # No book data yet — use trade price as mid with no
+                # bid/ask so the PriceMonitor's stale-price guard or
+                # edge detector's spread check filters it naturally.
+                self._price_cache[token_id] = MarketPrice(
+                    token_id=token_id,
+                    timestamp=now,
+                    bid=p,
+                    ask=p,
+                    mid=p,
+                    volume_24h=0.0,
+                )
 
     def _update_cache_from_shadow(self, token_id: str) -> None:
-        """Derive best bid/ask from shadow book and update price cache."""
+        """Derive best bid/ask from shadow book and update price cache.
+
+        Skips the update when the book is empty or crossed (bid >= ask)
+        so that downstream consumers never see phantom 0.0/1.0 prices.
+        """
         bids = self._shadow_bids.get(token_id, [])
         asks = self._shadow_asks.get(token_id, [])
 
         best_bid = max((b[0] for b in bids if b[1] > 0), default=0.0)
         best_ask = min((a[0] for a in asks if a[1] > 0), default=1.0)
+
+        # Reject empty-book sentinel values and crossed/locked books
+        if best_bid <= 0.0 or best_ask >= 1.0 or best_bid >= best_ask:
+            return
+
         mid = (best_bid + best_ask) / 2.0
 
         now = datetime.now(timezone.utc)

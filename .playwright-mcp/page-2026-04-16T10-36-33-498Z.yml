@@ -1,0 +1,167 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "TradeBot Dashboard" [level=1] [ref=e5]
+    - paragraph [ref=e6]: Polymarket Weather Prediction System
+    - generic [ref=e7]:
+      - text: Connected to API
+      - generic [ref=e9]: Live Feed Disconnected
+    - generic [ref=e10]:
+      - generic [ref=e12]: Scheduler running
+      - generic [ref=e13]: "Last cycle: 6m ago"
+      - generic [ref=e14]: "Next: market_refresh in 84m"
+      - generic [ref=e15]: "Signals: 159 | Trades: 0 | Errors: 0"
+  - main [ref=e16]:
+    - generic [ref=e17]:
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - heading "Exposure & Risk" [level=2] [ref=e20]
+          - generic [ref=e21]:
+            - generic [ref=e22]:
+              - generic [ref=e23]: Exposure
+              - generic [ref=e24]:
+                - text: $10.00
+                - generic [ref=e25]: (3.3%)
+            - generic [ref=e26]:
+              - generic [ref=e27]: Realized P&L
+              - generic [ref=e28]: +$0.00
+            - generic [ref=e29]:
+              - generic [ref=e30]: Bankroll
+              - generic [ref=e31]: $300
+            - generic [ref=e32]:
+              - generic [ref=e33]: Drawdown
+              - generic [ref=e34]: 0.0% / 15%
+        - generic [ref=e36]:
+          - generic [ref=e37]: CUSUM
+          - generic [ref=e38]: 17%
+      - generic [ref=e42]:
+        - heading "Performance" [level=2] [ref=e43]
+        - generic [ref=e44]:
+          - generic [ref=e45]:
+            - generic [ref=e46]: Total P&L
+            - generic [ref=e47]: $0.00
+          - generic [ref=e48]:
+            - generic [ref=e49]: Win Rate
+            - generic [ref=e50]: 0.0%
+          - generic [ref=e51]:
+            - generic [ref=e52]: Trades
+            - generic [ref=e53]: "0"
+          - generic [ref=e54]:
+            - generic [ref=e55]: Signals
+            - generic [ref=e56]: "318"
+          - generic [ref=e57]:
+            - generic [ref=e58]: Fill Rate
+            - generic [ref=e59]: 0%
+    - generic [ref=e60]: Loading markets...
+    - generic [ref=e61]:
+      - heading "Activity Feed" [level=2] [ref=e62]
+      - generic [ref=e64]: Waiting for events...
+    - generic [ref=e65]:
+      - heading "Stations" [level=2] [ref=e66]
+      - generic [ref=e67]:
+        - button "All" [ref=e68] [cursor=pointer]
+        - button "NYC (KNYC)" [ref=e69] [cursor=pointer]
+        - button "Chicago (KORD)" [ref=e70] [cursor=pointer]
+        - button "LA (KLAX)" [ref=e71] [cursor=pointer]
+        - button "Denver (KDEN)" [ref=e72] [cursor=pointer]
+        - button "Miami (KMIA)" [ref=e73] [cursor=pointer]
+    - generic [ref=e74]:
+      - heading "Paper Trades" [level=2] [ref=e75]
+      - heading "Pending (4)" [level=3] [ref=e76]
+      - table [ref=e78]:
+        - rowgroup [ref=e79]:
+          - row "City Bucket Dir Entry Size Model P Status PnL" [ref=e80]:
+            - columnheader "City" [ref=e81]
+            - columnheader "Bucket" [ref=e82]
+            - columnheader "Dir" [ref=e83]
+            - columnheader "Entry" [ref=e84]
+            - columnheader "Size" [ref=e85]
+            - columnheader "Model P" [ref=e86]
+            - columnheader "Status" [ref=e87]
+            - columnheader "PnL" [ref=e88]
+        - rowgroup [ref=e89]:
+          - row "Miami 79.5-81.5°F YES 8c $2.31 25.8% PENDING -" [ref=e90]:
+            - cell "Miami" [ref=e91]
+            - cell "79.5-81.5°F" [ref=e92]
+            - cell "YES" [ref=e93]:
+              - generic [ref=e94]: "YES"
+            - cell "8c" [ref=e95]
+            - cell "$2.31" [ref=e96]
+            - cell "25.8%" [ref=e97]
+            - cell "PENDING" [ref=e98]:
+              - generic [ref=e99]: PENDING
+            - cell "-" [ref=e100]
+          - row "Miami 77.5-79.5°F YES 2c $1.69 15.5% PENDING -" [ref=e101]:
+            - cell "Miami" [ref=e102]
+            - cell "77.5-79.5°F" [ref=e103]
+            - cell "YES" [ref=e104]:
+              - generic [ref=e105]: "YES"
+            - cell "2c" [ref=e106]
+            - cell "$1.69" [ref=e107]
+            - cell "15.5%" [ref=e108]
+            - cell "PENDING" [ref=e109]:
+              - generic [ref=e110]: PENDING
+            - cell "-" [ref=e111]
+          - row "Chicago 79.5-81.5°F NO 33c $3.00 19.0% PENDING -" [ref=e112]:
+            - cell "Chicago" [ref=e113]
+            - cell "79.5-81.5°F" [ref=e114]
+            - cell "NO" [ref=e115]:
+              - generic [ref=e116]: "NO"
+            - cell "33c" [ref=e117]
+            - cell "$3.00" [ref=e118]
+            - cell "19.0%" [ref=e119]
+            - cell "PENDING" [ref=e120]:
+              - generic [ref=e121]: PENDING
+            - cell "-" [ref=e122]
+          - row "NYC 77.5-79.5°F NO 35c $3.00 12.4% PENDING -" [ref=e123]:
+            - cell "NYC" [ref=e124]
+            - cell "77.5-79.5°F" [ref=e125]
+            - cell "NO" [ref=e126]:
+              - generic [ref=e127]: "NO"
+            - cell "35c" [ref=e128]
+            - cell "$3.00" [ref=e129]
+            - cell "12.4%" [ref=e130]
+            - cell "PENDING" [ref=e131]:
+              - generic [ref=e132]: PENDING
+            - cell "-" [ref=e133]
+    - generic [ref=e134]: Loading signals...
+    - generic [ref=e135]:
+      - generic [ref=e136]:
+        - heading "Calibration" [level=2] [ref=e137]
+        - paragraph [ref=e138]: "Requires 10+ resolved trades. Currently: 0"
+      - generic [ref=e139]:
+        - heading "Schedule" [level=2] [ref=e140]
+        - generic [ref=e141]:
+          - generic [ref=e142]:
+            - generic [ref=e143]: GFS
+            - generic [ref=e144]: 04:30:00 UTC
+            - generic [ref=e145]: GFS model update available at 04:30 UTC
+          - generic [ref=e146]:
+            - generic [ref=e147]: GFS
+            - generic [ref=e148]: 10:30:00 UTC
+            - generic [ref=e149]: GFS model update available at 10:30 UTC
+          - generic [ref=e150]:
+            - generic [ref=e151]: GFS
+            - generic [ref=e152]: 16:30:00 UTC
+            - generic [ref=e153]: GFS model update available at 16:30 UTC
+          - generic [ref=e154]:
+            - generic [ref=e155]: GFS
+            - generic [ref=e156]: 22:30:00 UTC
+            - generic [ref=e157]: GFS model update available at 22:30 UTC
+          - generic [ref=e158]:
+            - generic [ref=e159]: ECMWF
+            - generic [ref=e160]: 06:00:00 UTC
+            - generic [ref=e161]: ECMWF model update available at 06:00 UTC
+          - generic [ref=e162]:
+            - generic [ref=e163]: ECMWF
+            - generic [ref=e164]: 18:00:00 UTC
+            - generic [ref=e165]: ECMWF model update available at 18:00 UTC
+          - generic [ref=e166]:
+            - generic [ref=e167]: HRRR
+            - generic [ref=e168]: 14:30:00 UTC
+            - generic [ref=e169]: Same-day refinement after 12Z HRRR available
+          - generic [ref=e170]:
+            - generic [ref=e171]: RESOLVE
+            - generic [ref=e172]: 02:00:00 UTC
+            - generic [ref=e173]: Check resolved markets and compute PnL
+  - contentinfo [ref=e174]:
+    - paragraph [ref=e175]: Paper Trading Mode | Live Feed Disconnected

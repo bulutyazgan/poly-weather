@@ -5,10 +5,10 @@ interface Props {
   loading: boolean;
 }
 
-function formatBucket(low: number, high: number): string {
-  if (low === -Infinity) return `${high}F or below`;
-  if (high === Infinity) return `${low}F or higher`;
-  return `${low}-${high}F`;
+function formatBucket(low: number | null, high: number | null): string {
+  if (low == null || low === -Infinity) return `${high ?? "?"}°F or below`;
+  if (high == null || high === Infinity) return `${low}°F or above`;
+  return `${low}-${high}°F`;
 }
 
 export function TradeTable({ trades, loading }: Props) {

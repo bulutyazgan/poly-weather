@@ -62,6 +62,7 @@ class PredictionLog:
                 "market_id": e.signal.market_id,
                 "direction": e.signal.direction,
                 "action": e.signal.action,
+                "skip_reason": e.signal.skip_reason,
                 "edge": e.signal.edge,
                 "kelly_size": e.signal.kelly_size,
                 "signal_timestamp": e.signal.timestamp.isoformat(),

@@ -39,9 +39,11 @@ class PriceMonitor:
         prediction_log: PredictionLog,
         paper_trader: PaperTrader,
         cusum: CUSUMMonitor | None = None,
+        event_bus=None,
         debounce_seconds: float = 10.0,
         cooldown_seconds: float = 900.0,
         max_forecast_age_s: float = 28800.0,
+        max_price_age_s: float = 30.0,
         bankroll: float = 300.0,
     ) -> None:
         self._ws_feed = ws_feed
@@ -53,9 +55,11 @@ class PriceMonitor:
         self._prediction_log = prediction_log
         self._paper_trader = paper_trader
         self._cusum = cusum
+        self._event_bus = event_bus
         self._debounce_seconds = debounce_seconds
         self._cooldown_seconds = cooldown_seconds
         self._max_forecast_age_s = max_forecast_age_s
+        self._max_price_age_s = max_price_age_s
         self._bankroll = bankroll
 
         self._pending_edges: dict[str, datetime] = {}
@@ -111,6 +115,10 @@ class PriceMonitor:
     async def _handle_price_update(self, token_id: str):
         """Evaluate a single token's edge and trade if conditions are met.
 
+        When a NO token triggers this handler, we look up the parent YES
+        token's cached signal and use the YES token's live price for edge
+        evaluation (since model_prob is always for the YES outcome).
+
         Returns the trade record if a trade was executed, else None.
         """
         now = datetime.now(tz=timezone.utc)
@@ -122,8 +130,19 @@ class PriceMonitor:
         if self._signal_cache.forecast_age_seconds > self._max_forecast_age_s:
             return None
 
-        live_price = self._ws_feed.get_latest_price(token_id)
+        # Always evaluate edge using the YES token's price, since model_prob
+        # is calibrated against the YES outcome.  When a NO token triggers
+        # this handler, look up the YES token's live price instead.
+        yes_token = self._signal_cache.yes_token_for(token_id)
+        price_token = yes_token if yes_token is not None else token_id
+        live_price = self._ws_feed.get_latest_price(price_token)
         if live_price is None:
+            return None
+
+        # Reject stale prices — after a WS disconnect/reconnect the cache
+        # can hold prices that are seconds to minutes old.
+        price_age_s = (now - live_price.timestamp).total_seconds()
+        if price_age_s > self._max_price_age_s:
             return None
 
         # Compute hours to resolution live (not cached)
@@ -150,6 +169,19 @@ class PriceMonitor:
             market_ask=live_price.ask,
         )
 
+        if self._event_bus:
+            self._event_bus.publish("edge_eval", {
+                "token_id": token_id,
+                "station_id": cached.station_id,
+                "city": cached.contract.city,
+                "edge": round(signal.edge, 4),
+                "direction": signal.direction,
+                "action": signal.action,
+                "skip_reason": signal.skip_reason,
+                "model_prob": round(cached.model_prob, 4),
+                "market_prob": round(live_price.mid, 4),
+            })
+
         if signal.action != "TRADE":
             self._pending_edges.pop(token_id, None)
             return None
@@ -167,19 +199,35 @@ class PriceMonitor:
         if token_id in self._cooldowns and now < self._cooldowns[token_id]:
             return None
 
+        # Drawdown circuit breaker (shared with pipeline)
+        if self._exposure_tracker.is_halted:
+            return None
+
         # CUSUM check (alarm only reset by scheduled pipeline)
         if self._cusum is not None and self._cusum.alarm:
             return None
 
-        # Size position
+        # Kelly denominator must use execution price, not mid
+        if signal.direction == "BUY_YES":
+            kelly_prob = live_price.ask
+        else:
+            kelly_prob = live_price.bid
+
+        # Count active cooldowns as proxy for concurrently-trading stations.
+        # Each cooldown represents a recent trade on a (likely different) station,
+        # so len(active_cooldowns) + 1 approximates what the pipeline computes as
+        # active_station_count in its batch sizing pass.
+        active_cooldowns = sum(1 for ts in self._cooldowns.values() if now < ts)
+        active_stations = active_cooldowns + 1  # +1 for the trade we're about to place
+
         size_usd = self._position_sizer.compute(
             edge=signal.edge,
-            market_prob=live_price.mid,
+            market_prob=kelly_prob,
             bankroll=self._bankroll,
             current_exposure=self._exposure_tracker.current,
             ensemble_spread_pctile=cached.regime.ensemble_spread_percentile,
             direction=signal.direction,
-            active_station_count=1,
+            active_station_count=active_stations,
         )
 
         if size_usd <= 0:
@@ -196,12 +244,19 @@ class PriceMonitor:
         )
 
         # BUY_NO token routing
-        if signal.direction == "BUY_NO" and cached.contract.no_token_id:
-            no_price = self._ws_feed.get_latest_price(cached.contract.no_token_id)
-            if no_price is None:
+        if signal.direction == "BUY_NO":
+            if cached.contract.no_token_id:
+                no_price = self._ws_feed.get_latest_price(cached.contract.no_token_id)
+                if no_price is None:
+                    return None
+                exec_token = cached.contract.no_token_id
+                exec_price = no_price
+            else:
+                # Cannot buy YES token for a BUY_NO signal
+                logger.warning(
+                    "BUY_NO signal for %s but no NO token — skipping", token_id,
+                )
                 return None
-            exec_token = cached.contract.no_token_id
-            exec_price = no_price
         else:
             exec_token = token_id
             exec_price = live_price
@@ -213,10 +268,16 @@ class PriceMonitor:
         if trade_record is not None:
             self._exposure_tracker.add(size_usd)
 
+            # Use actual execution price, not mid, for realistic P&L
+            if signal.direction == "BUY_NO" and cached.contract.no_token_id:
+                paper_entry_price = 1.0 - exec_price.ask
+            else:
+                paper_entry_price = exec_price.ask
+
             self._paper_trader.record_trade(
                 signal=sized_signal,
                 contract=cached.contract,
-                entry_price=live_price.mid,
+                entry_price=paper_entry_price,
                 amount_usd=size_usd,
                 model_probability=cached.model_prob,
             )
@@ -231,9 +292,15 @@ class PriceMonitor:
             )
             self._prediction_log.log(log_entry)
 
-            self._cooldowns[token_id] = now + timedelta(
-                seconds=self._cooldown_seconds
-            )
+            # Cooldown both YES and NO tokens for this contract so
+            # updates on the other side can't bypass the lockout.
+            cooldown_until = now + timedelta(seconds=self._cooldown_seconds)
+            self._cooldowns[token_id] = cooldown_until
+            yes_tid = cached.contract.token_id
+            if yes_tid != token_id:
+                self._cooldowns[yes_tid] = cooldown_until
+            if cached.contract.no_token_id:
+                self._cooldowns[cached.contract.no_token_id] = cooldown_until
             self._pending_edges.pop(token_id, None)
 
             logger.info(
@@ -243,5 +310,15 @@ class PriceMonitor:
                 signal.edge,
                 size_usd,
             )
+
+            if self._event_bus:
+                self._event_bus.publish("trade_executed", {
+                    "trade_id": getattr(trade_record, "trade_id", ""),
+                    "direction": signal.direction,
+                    "amount_usd": round(size_usd, 2),
+                    "price": round(exec_price.ask, 4),
+                    "city": cached.contract.city,
+                    "question": cached.contract.question,
+                })
 
         return trade_record

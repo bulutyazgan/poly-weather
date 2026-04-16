@@ -47,6 +47,71 @@ class TestHandleRaw:
         assert price is not None
         assert price.mid == pytest.approx(0.65)
 
+    def test_price_change_preserves_book_bid_ask(self):
+        """price_change should not overwrite book-derived bid/ask with zero spread."""
+        feed = WebSocketFeed()
+        # First: establish book-derived bid/ask
+        snap = json.dumps({
+            "event_type": "book",
+            "asset_id": "tok_1",
+            "snapshot": True,
+            "bids": [["0.58", "100"]],
+            "asks": [["0.62", "150"]],
+        })
+        feed._handle_raw(snap)
+
+        # Then: price_change should update mid but keep bid/ask
+        change = json.dumps({
+            "event_type": "price_change",
+            "asset_id": "tok_1",
+            "price": "0.60",
+        })
+        feed._handle_raw(change)
+
+        price = feed.get_latest_price("tok_1")
+        assert price is not None
+        assert price.bid == pytest.approx(0.58), "bid should be preserved from book"
+        assert price.ask == pytest.approx(0.62), "ask should be preserved from book"
+        assert price.mid == pytest.approx(0.60), "mid should update to trade price"
+
+    def test_price_change_without_book_sets_zero_spread(self):
+        """Without prior book data, price_change creates a zero-spread entry."""
+        feed = WebSocketFeed()
+        raw = json.dumps({
+            "event_type": "price_change",
+            "asset_id": "tok_1",
+            "price": "0.65",
+        })
+        feed._handle_raw(raw)
+        price = feed.get_latest_price("tok_1")
+        assert price is not None
+        assert price.bid == pytest.approx(0.65)
+        assert price.ask == pytest.approx(0.65)
+
+    def test_price_change_updates_timestamp(self):
+        """price_change should refresh the timestamp even when preserving bid/ask."""
+        feed = WebSocketFeed()
+        # Establish book
+        snap = json.dumps({
+            "event_type": "book",
+            "asset_id": "tok_1",
+            "snapshot": True,
+            "bids": [["0.50", "100"]],
+            "asks": [["0.55", "150"]],
+        })
+        feed._handle_raw(snap)
+        old_ts = feed.get_latest_price("tok_1").timestamp
+
+        # price_change should update timestamp
+        change = json.dumps({
+            "event_type": "price_change",
+            "asset_id": "tok_1",
+            "price": "0.52",
+        })
+        feed._handle_raw(change)
+        new_ts = feed.get_latest_price("tok_1").timestamp
+        assert new_ts >= old_ts
+
     def test_book_snapshot_updates_cache(self):
         feed = WebSocketFeed()
         raw = json.dumps({

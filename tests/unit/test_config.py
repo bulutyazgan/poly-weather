@@ -10,14 +10,14 @@ class TestSettingsDefaults:
         from src.config.settings import Settings
 
         s = Settings()
-        assert s.KELLY_FRACTION == 0.08
-        assert s.MAX_TRADE_USD == 3.0
-        assert s.MAX_BANKROLL_PCT == 0.03
-        assert s.MAX_PORTFOLIO_EXPOSURE == 0.20
-        assert s.HIGH_REGIME_EDGE_THRESHOLD == 0.08
-        assert s.MEDIUM_REGIME_EDGE_THRESHOLD == 0.12
+        assert s.KELLY_FRACTION == 0.04
+        assert s.MAX_TRADE_USD == 1.50
+        assert s.MAX_BANKROLL_PCT == 0.01
+        assert s.MAX_PORTFOLIO_EXPOSURE == 0.35
+        assert s.HIGH_REGIME_EDGE_THRESHOLD == 0.05
+        assert s.MEDIUM_REGIME_EDGE_THRESHOLD == 0.08
         assert s.MIN_HOURS_TO_RESOLUTION == 2
-        assert s.MIN_MARKET_VOLUME == 2000
+        assert s.MIN_MARKET_VOLUME == 200
         assert s.PAPER_TRADING is True
 
     def test_settings_env_override(self, monkeypatch):

@@ -26,6 +26,7 @@ export function SignalTable({ signals, loading }: Props) {
               <th>Regime</th>
               <th>Model P</th>
               <th>Market P</th>
+              <th>Skip Reason</th>
             </tr>
           </thead>
           <tbody>
@@ -48,6 +49,13 @@ export function SignalTable({ signals, loading }: Props) {
                 </td>
                 <td>{(s.model_probability * 100).toFixed(1)}%</td>
                 <td>{(s.market_probability * 100).toFixed(1)}%</td>
+                <td>
+                  {s.skip_reason ? (
+                    <span className="badge skip-reason">{s.skip_reason}</span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

@@ -121,6 +121,7 @@ class TradingSignal(BaseModel):
     edge: float
     kelly_size: float
     timestamp: datetime
+    skip_reason: str = ""
 
 
 class TradeRecord(BaseModel):

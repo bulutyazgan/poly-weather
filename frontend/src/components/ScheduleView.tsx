@@ -8,6 +8,7 @@ const EVENT_ICONS: Record<string, string> = {
   gfs_update: "GFS",
   ecmwf_update: "ECMWF",
   morning_refinement: "HRRR",
+  resolution_check: "RESOLVE",
 };
 
 export function ScheduleView({ events }: Props) {

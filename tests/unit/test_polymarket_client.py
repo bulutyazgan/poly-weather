@@ -399,3 +399,25 @@ class TestCLOBClientOrders:
             mock_instance.cancel_all.assert_called_once()
 
             await client.close()
+
+
+class TestCLOBClientCancelOrder:
+    @pytest.mark.asyncio
+    async def test_cancel_order_paper_removes_specific_order(self):
+        client = CLOBClient(api_url=CLOB_BASE, private_key="0xfake", paper_trading=True)
+        oid1 = await client.place_limit_order("tok_1", "BUY", 0.5, 10)
+        oid2 = await client.place_limit_order("tok_2", "BUY", 0.6, 5)
+        assert len(client.paper_orders) == 2
+
+        result = await client.cancel_order(oid1)
+        assert result is True
+        assert len(client.paper_orders) == 1
+        assert client.paper_orders[0]["order_id"] == oid2
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_cancel_order_paper_nonexistent_returns_false(self):
+        client = CLOBClient(api_url=CLOB_BASE, private_key="0xfake", paper_trading=True)
+        result = await client.cancel_order("nonexistent-id")
+        assert result is False
+        await client.close()

@@ -1,0 +1,95 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "TradeBot Dashboard" [level=1] [ref=e5]
+    - paragraph [ref=e6]: Polymarket Weather Prediction System
+    - generic [ref=e7]:
+      - text: Connected to API
+      - generic [ref=e9]: Live Feed Disconnected
+    - generic [ref=e10]:
+      - generic [ref=e12]: Scheduler running
+      - generic [ref=e13]: "Last cycle: 3m ago"
+      - generic [ref=e14]: "Next: resolution_check in 17m"
+      - generic [ref=e15]: "Signals: 110 | Trades: 15 | Errors: 0"
+  - main [ref=e16]:
+    - generic [ref=e17]:
+      - generic [ref=e18]:
+        - generic [ref=e19]: Loading exposure...
+        - generic [ref=e20]:
+          - generic [ref=e21]: CUSUM
+          - generic [ref=e22]: 6%
+      - generic [ref=e26]:
+        - heading "Performance" [level=2] [ref=e27]
+        - generic [ref=e28]:
+          - generic [ref=e29]:
+            - generic [ref=e30]: Total P&L
+            - generic [ref=e31]: $0.00
+          - generic [ref=e32]:
+            - generic [ref=e33]: Win Rate
+            - generic [ref=e34]: 0.0%
+          - generic [ref=e35]:
+            - generic [ref=e36]: Trades
+            - generic [ref=e37]: "0"
+          - generic [ref=e38]:
+            - generic [ref=e39]: Signals
+            - generic [ref=e40]: "110"
+          - generic [ref=e41]:
+            - generic [ref=e42]: Fill Rate
+            - generic [ref=e43]: 0%
+    - generic [ref=e44]: Loading markets...
+    - generic [ref=e45]:
+      - heading "Activity Feed" [level=2] [ref=e46]
+      - generic [ref=e48]: Waiting for events...
+    - generic [ref=e49]:
+      - heading "Stations" [level=2] [ref=e50]
+      - generic [ref=e51]:
+        - button "All" [ref=e52] [cursor=pointer]
+        - button "NYC (KNYC)" [ref=e53] [cursor=pointer]
+        - button "Chicago (KORD)" [ref=e54] [cursor=pointer]
+        - button "LA (KLAX)" [ref=e55] [cursor=pointer]
+        - button "Denver (KDEN)" [ref=e56] [cursor=pointer]
+        - button "Miami (KMIA)" [ref=e57] [cursor=pointer]
+    - generic [ref=e58]:
+      - heading "Paper Trades" [level=2] [ref=e59]
+      - paragraph [ref=e60]: No trades yet
+    - generic [ref=e61]: Loading signals...
+    - generic [ref=e62]:
+      - generic [ref=e63]:
+        - heading "Calibration" [level=2] [ref=e64]
+        - paragraph [ref=e65]: "Requires 10+ resolved trades. Currently: 0"
+      - generic [ref=e66]:
+        - heading "Schedule" [level=2] [ref=e67]
+        - generic [ref=e68]:
+          - generic [ref=e69]:
+            - generic [ref=e70]: GFS
+            - generic [ref=e71]: 04:30:00 UTC
+            - generic [ref=e72]: GFS model update available at 04:30 UTC
+          - generic [ref=e73]:
+            - generic [ref=e74]: GFS
+            - generic [ref=e75]: 10:30:00 UTC
+            - generic [ref=e76]: GFS model update available at 10:30 UTC
+          - generic [ref=e77]:
+            - generic [ref=e78]: GFS
+            - generic [ref=e79]: 16:30:00 UTC
+            - generic [ref=e80]: GFS model update available at 16:30 UTC
+          - generic [ref=e81]:
+            - generic [ref=e82]: GFS
+            - generic [ref=e83]: 22:30:00 UTC
+            - generic [ref=e84]: GFS model update available at 22:30 UTC
+          - generic [ref=e85]:
+            - generic [ref=e86]: ECMWF
+            - generic [ref=e87]: 06:00:00 UTC
+            - generic [ref=e88]: ECMWF model update available at 06:00 UTC
+          - generic [ref=e89]:
+            - generic [ref=e90]: ECMWF
+            - generic [ref=e91]: 18:00:00 UTC
+            - generic [ref=e92]: ECMWF model update available at 18:00 UTC
+          - generic [ref=e93]:
+            - generic [ref=e94]: HRRR
+            - generic [ref=e95]: 14:30:00 UTC
+            - generic [ref=e96]: Same-day refinement after 12Z HRRR available
+          - generic [ref=e97]:
+            - generic [ref=e98]: resolution_check
+            - generic [ref=e99]: 02:00:00 UTC
+            - generic [ref=e100]: Check resolved markets and compute PnL
+  - contentinfo [ref=e101]:
+    - paragraph [ref=e102]: Paper Trading Mode | Live Feed Disconnected

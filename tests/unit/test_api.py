@@ -19,7 +19,7 @@ def _populated_state():
     from src.orchestrator.scheduler import PipelineScheduler
 
     prediction_log = PredictionLog()
-    paper_trader = PaperTrader()
+    paper_trader = PaperTrader(taker_fee_rate=0.0)
 
     # Create a mock scheduler (avoid needing a real TradingPipeline)
     mock_pipeline = MagicMock()
@@ -369,3 +369,179 @@ async def test_get_signals_empty():
         resp = await client.get("/api/signals")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_populated_state")
+async def test_get_status():
+    """Status endpoint returns scheduler health and signal cache info."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "scheduler" in data
+    assert data["scheduler"]["running"] is False  # scheduler not started in test
+    assert "signal_cache_age_seconds" in data
+    assert "signal_count" in data
+    assert data["signal_count"] == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_empty_state")
+async def test_get_status_empty():
+    """Status endpoint returns defaults when no state is set."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["scheduler"]["running"] is False
+    assert data["signal_cache_age_seconds"] is None
+    assert data["signal_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# New endpoint tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_empty_state")
+async def test_get_exposure_empty():
+    """Exposure endpoint returns defaults when no tracker is set."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/exposure")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["current_exposure_usd"] == 0.0
+    assert data["is_halted"] is False
+    assert data["bankroll"] == 300.0
+
+
+@pytest.mark.anyio
+async def test_get_exposure_with_tracker():
+    """Exposure endpoint returns live tracker state."""
+    from src.api.main import app, set_state
+    from src.trading.exposure_tracker import ExposureTracker
+
+    tracker = ExposureTracker(bankroll=500.0, max_drawdown_pct=0.10)
+    tracker.add(75.0)
+    tracker.record_pnl(-10.0, amount_usd=25.0)
+
+    set_state(None, None, None, exposure_tracker=tracker)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/exposure")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["current_exposure_usd"] == 50.0
+        assert data["realized_pnl"] == -10.0
+        assert data["is_halted"] is False
+        assert data["bankroll"] == 500.0
+        assert data["exposure_pct"] == 10.0
+        assert data["drawdown_pct"] == 2.0
+    finally:
+        set_state(None, None, None)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_empty_state")
+async def test_get_cached_signals_empty():
+    """Cached signals endpoint returns empty list when no cache."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/cached-signals")
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.anyio
+async def test_get_cached_signals_with_data():
+    """Cached signals endpoint returns cached model probabilities."""
+    from src.api.main import app, set_state
+    from src.orchestrator.signal_cache import CachedSignal, SignalCache
+
+    cache = SignalCache()
+    contract = MarketContract(
+        token_id="tok-cs",
+        condition_id="cond-cs",
+        question="Will NYC high be 68-69°F?",
+        city="NYC",
+        resolution_date=date(2026, 4, 20),
+        temp_bucket_low=68.0,
+        temp_bucket_high=69.0,
+        outcome="Yes",
+    )
+    regime = RegimeClassification(
+        station_id="KNYC",
+        valid_date=date(2026, 4, 20),
+        regime="stable",
+        confidence="HIGH",
+    )
+    cache.update({
+        "tok-cs": CachedSignal(
+            model_prob=0.42,
+            regime=regime,
+            contract=contract,
+            station_id="KNYC",
+            forecast_time=datetime(2026, 4, 16, 10, 0, tzinfo=timezone.utc),
+        ),
+    })
+
+    set_state(None, None, None, signal_cache=cache)
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/cached-signals")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        sig = data[0]
+        assert sig["token_id"] == "tok-cs"
+        assert sig["city"] == "NYC"
+        assert sig["model_prob"] == 0.42
+        assert sig["regime_confidence"] == "HIGH"
+        assert sig["temp_bucket"] == "68.0-69.0"
+        assert sig["live_bid"] is None  # no ws_feed
+        assert sig["current_edge"] is None
+    finally:
+        set_state(None, None, None)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_empty_state")
+async def test_get_price_monitor_empty():
+    """Price monitor endpoint returns defaults when no monitor is set."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/price-monitor")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["running"] is False
+    assert data["ws_connected"] is False
+    assert data["subscribed_tokens"] == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_populated_state")
+async def test_signals_include_skip_reason():
+    """Signal entries include skip_reason field."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/signals")
+    assert resp.status_code == 200
+    data = resp.json()
+    for signal in data:
+        assert "skip_reason" in signal
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_empty_state")
+async def test_sse_endpoint_returns_event_stream():
+    """SSE endpoint returns text/event-stream content type."""
+    from src.api.main import app
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/events")
+    # Without event_bus, returns empty stream
+    assert resp.status_code == 200

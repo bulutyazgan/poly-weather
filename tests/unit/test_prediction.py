@@ -110,7 +110,7 @@ class TestProbabilityEngine:
         """Probabilities across realistic range sum to ~1.
 
         Uses 15 buckets (60-75F) centred on the distribution — this
-        captures >99% of the mass while keeping tail-clamping (prob_floor=0.005)
+        captures >99% of the mass while keeping tail-clamping (prob_floor=0.0005)
         from inflating the sum significantly.
         """
         dist = stats.norm(loc=68.0, scale=2.0)
@@ -124,7 +124,7 @@ class TestProbabilityEngine:
         dist = stats.norm(loc=55.0, scale=2.0)
         # 85-90F is ~15 std deviations away — raw prob is 0.0
         prob = self.engine.compute_bucket_probability(dist, 85.0, 90.0)
-        assert prob == 0.005  # default floor
+        assert prob == 0.0005  # default floor
         assert prob > 0.0
 
     def test_probability_ceil_prevents_one(self) -> None:
@@ -132,7 +132,7 @@ class TestProbabilityEngine:
         dist = stats.norm(loc=70.0, scale=0.1)
         # Bucket covers almost all mass
         prob = self.engine.compute_bucket_probability(dist, 50.0, 90.0)
-        assert prob == 0.995  # default ceil
+        assert prob == 0.9995  # default ceil
         assert prob < 1.0
 
     def test_mos_anchored_distribution(self) -> None:
@@ -306,6 +306,46 @@ class TestRegimeClassifier:
         assert result.confidence == "LOW"
         assert "bimodal_ensemble" in result.active_flags
 
+    def test_quantized_ensemble_not_bimodal(self) -> None:
+        """Tightly clustered quantized data (Open-Meteo 0.2°F steps) must NOT
+        trigger false bimodal detection.
+
+        Real example: 30 GFS members at 75-76°F with 0.2° quantization.
+        median_gap ≈ 0, max_gap < 0.5°F — this is noise, not bimodality.
+        The 3°F minimum gap threshold prevents this false positive.
+        """
+        members = [75.2, 75.2, 75.4, 75.4, 75.6, 75.6, 75.6, 75.7, 75.7,
+                    75.7, 75.9, 76.1, 76.1, 76.1, 76.1, 76.1, 76.1, 76.3,
+                    76.3, 76.3, 76.3, 76.3, 76.3, 76.5, 76.5, 76.5, 76.5,
+                    76.5, 76.6, 76.6]
+        spread = float(np.std(members, ddof=1))
+        result = self.classifier.classify(
+            station_id="KNYC",
+            valid_date=date(2026, 4, 16),
+            ensemble_spread=spread,
+            ensemble_members=members,
+        )
+        assert "bimodal_ensemble" not in result.active_flags
+        # Low spread + no flags → HIGH confidence
+        assert result.confidence == "HIGH"
+
+    def test_genuine_bimodal_with_large_gap(self) -> None:
+        """Two clusters separated by 5°F+ should still trigger bimodal.
+
+        This represents a genuine regime split (e.g. chinook vs no-chinook).
+        """
+        members = [60.0, 60.5, 61.0, 61.5, 62.0, 62.5, 63.0, 63.5,
+                    70.0, 70.5, 71.0, 71.5, 72.0, 72.5, 73.0, 73.5]
+        spread = float(np.std(members, ddof=1))
+        result = self.classifier.classify(
+            station_id="KNYC",
+            valid_date=date(2026, 4, 16),
+            ensemble_spread=spread,
+            ensemble_members=members,
+        )
+        assert "bimodal_ensemble" in result.active_flags
+        assert result.confidence == "LOW"
+
     def test_santa_ana_overrides_to_high(self) -> None:
         """LA station with Santa Ana conditions → HIGH with santa_ana flag."""
         # Even moderate spread, santa_ana override should push to HIGH
@@ -345,3 +385,90 @@ class TestRegimeClassifier:
         assert isinstance(result, RegimeClassification)
         assert result.station_id == "KNYC"
         assert result.valid_date == date(2026, 4, 16)
+
+    def test_default_thresholds_benign_weather_high(self) -> None:
+        """Without spread_history, a 2.5°F spread (typical benign weather)
+        should yield HIGH confidence, enabling the 0.08 edge threshold.
+
+        Blended GFS/ECMWF Tmax spread of 2-3°F is normal for routine
+        forecasts without frontal passages or convection.
+        """
+        classifier_no_history = RegimeClassifier()
+        result = classifier_no_history.classify(
+            station_id="KNYC",
+            valid_date=date(2026, 4, 16),
+            ensemble_spread=2.5,
+        )
+        assert result.confidence == "HIGH"
+
+    def test_default_thresholds_midwest_spread(self) -> None:
+        """Without spread_history, a 4°F spread (typical Midwest spring)
+        should yield MEDIUM, not LOW.
+
+        Bug: the old _DEFAULT_HIGH_THRESHOLD of 3.0°F made Chicago
+        permanently LOW-confidence, blocking all trades for the city.
+        4°F ensemble spread is normal for Midwest spring weather.
+        """
+        classifier_no_history = RegimeClassifier()
+        result = classifier_no_history.classify(
+            station_id="KORD",
+            valid_date=date(2026, 4, 16),
+            ensemble_spread=4.0,
+        )
+        assert result.confidence == "MEDIUM"
+
+    def test_default_thresholds_genuinely_wide_spread(self) -> None:
+        """Without spread_history, a 6°F spread should yield LOW."""
+        classifier_no_history = RegimeClassifier()
+        result = classifier_no_history.classify(
+            station_id="KORD",
+            valid_date=date(2026, 4, 16),
+            ensemble_spread=6.0,
+        )
+        assert result.confidence == "LOW"
+
+    def test_between_model_moderate_does_not_force_low(self) -> None:
+        """A MEDIUM-confidence station with 4-8°F between-model spread
+        should stay MEDIUM, not get pushed to LOW.
+
+        Rationale: ensemble spread already set MEDIUM (higher edge
+        threshold).  Double-penalizing with a LOW downgrade blocks all
+        trading for normal GFS/ECMWF disagreement (4-7°F is routine).
+        """
+        classifier = RegimeClassifier()
+        result = classifier.classify(
+            station_id="KNYC",
+            valid_date=date(2026, 4, 16),
+            ensemble_spread=4.0,  # → MEDIUM (45th pctile)
+            between_model_spread=6.5,  # moderate disagreement
+        )
+        assert result.confidence == "MEDIUM", (
+            f"MEDIUM + 6.5°F between-model should stay MEDIUM, got {result.confidence}"
+        )
+        assert "model_disagreement" in result.active_flags
+
+    def test_between_model_high_downgrades_to_medium(self) -> None:
+        """A HIGH-confidence station with moderate between-model spread
+        should downgrade to MEDIUM (one step), not LOW."""
+        classifier = RegimeClassifier()
+        result = classifier.classify(
+            station_id="KDEN",
+            valid_date=date(2026, 4, 16),
+            ensemble_spread=1.0,  # → HIGH (20th pctile)
+            between_model_spread=5.0,  # moderate disagreement
+        )
+        assert result.confidence == "MEDIUM"
+        assert "model_disagreement" in result.active_flags
+
+    def test_between_model_severe_forces_low(self) -> None:
+        """Severe between-model disagreement (>8°F) should force LOW
+        regardless of starting confidence."""
+        classifier = RegimeClassifier()
+        result = classifier.classify(
+            station_id="KDEN",
+            valid_date=date(2026, 4, 16),
+            ensemble_spread=1.0,  # → HIGH normally
+            between_model_spread=9.0,  # severe
+        )
+        assert result.confidence == "LOW"
+        assert "model_disagreement" in result.active_flags

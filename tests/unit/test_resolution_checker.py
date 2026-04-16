@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.data.models import MarketContract, TradingSignal
+from src.trading.exposure_tracker import ExposureTracker
 from src.verification.paper_trader import PaperTrader
 from src.verification.resolution_checker import ResolutionChecker
 
@@ -44,7 +45,7 @@ class TestResolutionChecker:
         gamma = AsyncMock()
         gamma.fetch_market_resolution = AsyncMock(return_value=True)
 
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         signal = _make_signal("BUY_YES")
         contract = _make_contract()
         tid = trader.record_trade(signal, contract, entry_price=0.50, amount_usd=2.0)
@@ -63,7 +64,7 @@ class TestResolutionChecker:
         gamma = AsyncMock()
         gamma.fetch_market_resolution = AsyncMock(return_value=False)
 
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         signal = _make_signal("BUY_YES")
         contract = _make_contract()
         tid = trader.record_trade(signal, contract, entry_price=0.50, amount_usd=2.0)
@@ -80,7 +81,7 @@ class TestResolutionChecker:
         gamma = AsyncMock()
         gamma.fetch_market_resolution = AsyncMock(return_value=False)
 
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         signal = _make_signal("BUY_NO")
         contract = _make_contract()
         tid = trader.record_trade(signal, contract, entry_price=0.70, amount_usd=1.50)
@@ -98,7 +99,7 @@ class TestResolutionChecker:
         gamma = AsyncMock()
         gamma.fetch_market_resolution = AsyncMock(return_value=None)
 
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         signal = _make_signal()
         contract = _make_contract()
         trader.record_trade(signal, contract, entry_price=0.50, amount_usd=2.0)
@@ -114,7 +115,7 @@ class TestResolutionChecker:
     async def test_no_unresolved_trades(self):
         """When all trades are already resolved, check does nothing."""
         gamma = AsyncMock()
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
 
         checker = ResolutionChecker(gamma=gamma, paper_trader=trader)
         result = await checker.check_resolutions()
@@ -128,7 +129,7 @@ class TestResolutionChecker:
         gamma = AsyncMock()
         gamma.fetch_market_resolution = AsyncMock(side_effect=Exception("API down"))
 
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         signal = _make_signal()
         contract = _make_contract()
         trader.record_trade(signal, contract, entry_price=0.50, amount_usd=2.0)
@@ -151,7 +152,7 @@ class TestResolutionChecker:
         gamma = AsyncMock()
         gamma.fetch_market_resolution = AsyncMock(side_effect=mock_resolution)
 
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         for i, cid in enumerate(["cond_1", "cond_2", "cond_3"]):
             sig = _make_signal()
             contract = _make_contract(condition_id=cid)
@@ -173,7 +174,7 @@ class TestResolutionChecker:
         gamma = AsyncMock()
         gamma.fetch_market_resolution = AsyncMock(return_value=True)
 
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         signal = _make_signal()
         contract = _make_contract()
         tid = trader.record_trade(signal, contract, entry_price=0.50, amount_usd=2.0)
@@ -184,3 +185,24 @@ class TestResolutionChecker:
 
         assert result["checked"] == 0
         gamma.fetch_market_resolution.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resolution_releases_exposure(self):
+        """Resolving a trade releases its capital from the exposure tracker."""
+        gamma = AsyncMock()
+        gamma.fetch_market_resolution = AsyncMock(return_value=True)
+
+        trader = PaperTrader(taker_fee_rate=0.0)
+        tracker = ExposureTracker()
+        tracker.add(2.0)  # simulate trade placement
+
+        signal = _make_signal("BUY_YES")
+        contract = _make_contract()
+        trader.record_trade(signal, contract, entry_price=0.50, amount_usd=2.0)
+
+        checker = ResolutionChecker(gamma=gamma, paper_trader=trader, exposure_tracker=tracker)
+        await checker.check_resolutions()
+
+        assert tracker.current == pytest.approx(0.0), (
+            f"Expected exposure to be released to 0, got {tracker.current}"
+        )

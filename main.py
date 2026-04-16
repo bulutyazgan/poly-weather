@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import sys
+from datetime import datetime, timezone
 
 from src.config.settings import Settings
 from src.config.stations import get_stations
@@ -23,6 +24,7 @@ from src.trading.executor import OrderExecutor
 from src.verification.prediction_log import PredictionLog
 from src.verification.paper_trader import PaperTrader
 from src.verification.resolution_checker import ResolutionChecker
+from src.api.event_bus import EventBus
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +35,8 @@ logger = logging.getLogger("tradebot")
 
 async def main():
     settings = Settings()
+
+    event_bus = EventBus()
 
     logger.info("Starting TradeBot in %s mode", "PAPER" if settings.PAPER_TRADING else "LIVE")
     logger.info("Monitoring %d stations", len(get_stations()))
@@ -58,19 +62,30 @@ async def main():
         min_hours=settings.MIN_HOURS_TO_RESOLUTION,
         max_market_certainty=settings.MAX_MARKET_CERTAINTY,
         max_edge=settings.MAX_EDGE,
+        taker_fee_rate=settings.TAKER_FEE_RATE,
+        max_spread=settings.MAX_SPREAD,
     )
     position_sizer = PositionSizer(
         kelly_fraction=settings.KELLY_FRACTION,
         max_trade_usd=settings.MAX_TRADE_USD,
         max_bankroll_pct=settings.MAX_BANKROLL_PCT,
         max_portfolio_exposure=settings.MAX_PORTFOLIO_EXPOSURE,
+        min_trade_usd=settings.MIN_TRADE_USD,
     )
-    executor = OrderExecutor(clob_client=clob, paper_trading=settings.PAPER_TRADING)
+    executor = OrderExecutor(
+        clob_client=clob,
+        paper_trading=settings.PAPER_TRADING,
+        order_ttl_seconds=settings.ORDER_TTL_SECONDS,
+    )
     prediction_log = PredictionLog()
-    paper_trader = PaperTrader()
-    cusum = CUSUMMonitor(threshold=2.0)
+    paper_trader = PaperTrader(taker_fee_rate=settings.TAKER_FEE_RATE)
+    cusum = CUSUMMonitor(threshold=2.0, drift=0.05)
     signal_cache = SignalCache()
-    exposure_tracker = ExposureTracker()
+    exposure_tracker = ExposureTracker(
+        bankroll=settings.BANKROLL,
+        max_drawdown_pct=settings.MAX_DRAWDOWN_PCT,
+        event_bus=event_bus,
+    )
 
     # Build pipeline
     pipeline = TradingPipeline(
@@ -85,14 +100,14 @@ async def main():
         cusum=cusum,
         signal_cache=signal_cache,
         exposure_tracker=exposure_tracker,
+        event_bus=event_bus,
     )
 
-    resolution_checker = ResolutionChecker(gamma=gamma, paper_trader=paper_trader)
+    resolution_checker = ResolutionChecker(
+        gamma=gamma, paper_trader=paper_trader, exposure_tracker=exposure_tracker,
+        event_bus=event_bus,
+    )
     scheduler = PipelineScheduler(pipeline=pipeline, resolution_checker=resolution_checker)
-
-    # Set API state
-    from src.api.main import set_state
-    set_state(prediction_log, paper_trader, scheduler, cusum=cusum)
 
     # Start API server in background
     import uvicorn
@@ -110,14 +125,32 @@ async def main():
 
     # Run initial data collection cycle
     logger.info("Running initial data collection...")
-    result = await pipeline.run_cycle()
+    result = await pipeline.run_cycle(bankroll=settings.BANKROLL)
     logger.info("Initial cycle: %s", result)
+
+    # Seed scheduler status so /api/status shows the initial cycle
+    scheduler._last_run_time = datetime.now(tz=timezone.utc)
+    scheduler._last_run_result = result
 
     # Start continuous price monitor
     ws_feed = None
     price_monitor = None
     if settings.PRICE_MONITOR_ENABLED:
-        ws_feed = WebSocketFeed()
+        ws_feed = WebSocketFeed(event_bus=event_bus)
+
+        # Bootstrap WS feed with tokens from initial cycle so the
+        # PriceMonitor doesn't wait for the next scheduler event.
+        # (signal_cache.updated was already set() before anyone was
+        # listening — _watch_resubscription would block until next cycle.)
+        initial_signals = signal_cache.get_all()
+        token_ids = list(initial_signals.keys())
+        for cached in initial_signals.values():
+            if cached.contract.no_token_id:
+                token_ids.append(cached.contract.no_token_id)
+        if token_ids:
+            await ws_feed.subscribe(token_ids)
+            logger.info("WS feed bootstrapped with %d tokens from initial cycle", len(token_ids))
+
         price_monitor = PriceMonitor(
             ws_feed=ws_feed,
             signal_cache=signal_cache,
@@ -128,9 +161,11 @@ async def main():
             prediction_log=prediction_log,
             paper_trader=paper_trader,
             cusum=cusum,
+            event_bus=event_bus,
             debounce_seconds=settings.PRICE_MONITOR_DEBOUNCE_S,
             cooldown_seconds=settings.PRICE_MONITOR_COOLDOWN_S,
             max_forecast_age_s=settings.PRICE_MONITOR_MAX_FORECAST_AGE_S,
+            max_price_age_s=settings.PRICE_MONITOR_MAX_PRICE_AGE_S,
             bankroll=settings.BANKROLL,
         )
         await price_monitor.start()
@@ -138,8 +173,19 @@ async def main():
                      settings.PRICE_MONITOR_DEBOUNCE_S,
                      settings.PRICE_MONITOR_COOLDOWN_S)
 
+    # Set API state (after all components are initialized)
+    from src.api.main import set_state
+    set_state(
+        prediction_log, paper_trader, scheduler,
+        executor=executor, cusum=cusum, signal_cache=signal_cache,
+        exposure_tracker=exposure_tracker,
+        ws_feed=ws_feed,
+        price_monitor=price_monitor,
+        event_bus=event_bus,
+    )
+
     # Start scheduler in background
-    await scheduler.start()
+    await scheduler.start(bankroll=settings.BANKROLL)
 
     # Start server (blocks until shutdown)
     try:

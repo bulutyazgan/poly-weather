@@ -69,14 +69,11 @@ def _make_snap(
 class TestSynthesizeMos:
     """Test _synthesize_mos Tmax estimation."""
 
-    def test_hrrr_preferred_over_ensemble(self):
-        """HRRR max across hours is the best Tmax — should be used even when
-        ensemble data is available.
+    def test_hrrr_excluded_when_disagrees_with_nwp(self):
+        """HRRR excluded when it disagrees with NWP consensus by >4°F.
 
-        Hand calculation:
-            HRRR temps: [58, 65, 72, 68] -> max = 72°F
-            GFS ensemble mean: (55+60+65)/3 = 60°F
-            We want 72, not 60.
+        GFS mean = 60°F, HRRR max = 72°F → disagreement = 12°F > 4°F.
+        Result: only GFS used → MOS = 60°F.
         """
         snap = _make_snap(
             gfs_members=[55.0, 60.0, 65.0],
@@ -86,15 +83,30 @@ class TestSynthesizeMos:
         now = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
 
         mos = _synthesize_mos(snap, station, now)
-        assert mos.high_f == pytest.approx(72.0)
+        assert mos.high_f == pytest.approx(60.0, abs=0.1)
+
+    def test_hrrr_included_when_agrees_with_nwp(self):
+        """HRRR included when within 4°F of NWP consensus.
+
+        GFS mean = 60°F, HRRR max = 62°F → disagreement = 2°F ≤ 4°F.
+        weighted = (0.4*60 + 0.15*62) / (0.4 + 0.15) = (24 + 9.3) / 0.55 = 60.55°F
+        """
+        snap = _make_snap(
+            gfs_members=[55.0, 60.0, 65.0],
+            hrrr_temps=[58.0, 60.0, 62.0, 59.0],
+        )
+        station = _make_station()
+        now = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
+
+        mos = _synthesize_mos(snap, station, now)
+        assert mos.high_f == pytest.approx(60.55, abs=0.1)
 
     def test_ensemble_uses_mean_at_peak_hour(self):
-        """When only ensemble is available, use ensemble mean (consensus Tmax).
+        """When only GFS ensemble is available, use ensemble mean.
 
         Hand calculation:
             GFS members: [55, 60, 65, 70, 75]
             mean = 65
-            We want 65 (ensemble consensus, not max=75 which is biased warm).
         """
         snap = _make_snap(gfs_members=[55.0, 60.0, 65.0, 70.0, 75.0])
         station = _make_station()
@@ -113,6 +125,24 @@ class TestSynthesizeMos:
         # mean([60, 68, 72]) = 66.67
         assert mos.high_f == pytest.approx(66.67, abs=0.1)
 
+    def test_gfs_ecmwf_weighted_average(self):
+        """Both NWP models available → weighted average (ECMWF 0.6, GFS 0.4).
+
+        Hand calculation:
+            GFS mean = 68, ECMWF mean = 77
+            Old bug: max(68, 77) = 77 — biased to warmest model
+            Fix: (0.4*68 + 0.6*77) / (0.4+0.6) = (27.2 + 46.2) / 1.0 = 73.4
+        """
+        snap = _make_snap(
+            gfs_members=[67.0, 68.0, 69.0],
+            ecmwf_members=[76.0, 77.0, 78.0],
+        )
+        station = _make_station()
+        now = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
+
+        mos = _synthesize_mos(snap, station, now)
+        assert mos.high_f == pytest.approx(73.4, abs=0.1)
+
     def test_no_data_fallback(self):
         """When no weather data is available, fall back to 70°F."""
         snap = _make_snap()
@@ -129,7 +159,7 @@ class TestSynthesizeMos:
         now = datetime(2026, 4, 16, 12, 0, tzinfo=timezone.utc)
 
         mos = _synthesize_mos(snap, station, now)
-        assert mos.low_f == pytest.approx(65.0)
+        assert mos.low_f == pytest.approx(mos.high_f - 15.0)
 
 
 class TestCUSUMResidual:
@@ -338,3 +368,77 @@ class TestResolutionUtc:
         # Fix: end of day
         new_hours = (_resolution_utc(contract) - now).total_seconds() / 3600.0
         assert new_hours > 0  # correctly shows 4h remaining
+
+
+class TestPickEnsembleForDate:
+    """Test _pick_ensemble_for_date uses 06Z boundary for US local day."""
+
+    def test_rejects_previous_day_evening(self):
+        """00-05Z (previous local day evening) must not contaminate Tmax.
+
+        00Z April 17 UTC is 6PM MDT April 16 for Denver.  Pre-frontal
+        warm air at that hour is the previous day's temperature, not
+        April 17's.  Including it overestimates Tmax by 20-30°F during
+        cold-front passages.
+        """
+        from src.orchestrator.pipeline import _pick_ensemble_for_date
+        from datetime import date
+
+        # Warm evening at 00Z (= previous local day) and cool afternoon at 20Z
+        warm_evening = EnsembleForecast(
+            model_name="gfs",
+            run_time=datetime(2026, 4, 16, 6, tzinfo=timezone.utc),
+            valid_time=datetime(2026, 4, 17, 0, 0, tzinfo=timezone.utc),  # 00Z
+            station_id="KDEN",
+            members=[72.0 + i * 0.1 for i in range(31)],
+        )
+        cool_afternoon = EnsembleForecast(
+            model_name="gfs",
+            run_time=datetime(2026, 4, 16, 6, tzinfo=timezone.utc),
+            valid_time=datetime(2026, 4, 17, 20, 0, tzinfo=timezone.utc),  # 20Z
+            station_id="KDEN",
+            members=[55.0 + i * 0.1 for i in range(31)],
+        )
+
+        result = _pick_ensemble_for_date(
+            [warm_evening, cool_afternoon], date(2026, 4, 17)
+        )
+        assert result is not None
+        # Must pick 55°F afternoon, NOT 72°F from previous local day
+        assert result.mean < 60.0, (
+            f"Expected cool afternoon (~55°F), got {result.mean:.1f}°F — "
+            "00Z (previous local evening) was incorrectly included"
+        )
+
+    def test_includes_late_afternoon(self):
+        """Late-afternoon peak (00Z next day = 6PM MDT) must be included.
+
+        Denver's high on a warm day can peak at 6PM MDT = 00Z next UTC day.
+        The 06Z-05:59Z window must extend into the next UTC day.
+        """
+        from src.orchestrator.pipeline import _pick_ensemble_for_date
+        from datetime import date
+
+        morning = EnsembleForecast(
+            model_name="gfs",
+            run_time=datetime(2026, 4, 16, 6, tzinfo=timezone.utc),
+            valid_time=datetime(2026, 4, 17, 14, 0, tzinfo=timezone.utc),  # 14Z
+            station_id="KDEN",
+            members=[60.0 + i * 0.1 for i in range(31)],
+        )
+        late_afternoon = EnsembleForecast(
+            model_name="gfs",
+            run_time=datetime(2026, 4, 16, 6, tzinfo=timezone.utc),
+            valid_time=datetime(2026, 4, 18, 0, 0, tzinfo=timezone.utc),  # 00Z+1
+            station_id="KDEN",
+            members=[78.0 + i * 0.1 for i in range(31)],
+        )
+
+        result = _pick_ensemble_for_date(
+            [morning, late_afternoon], date(2026, 4, 17)
+        )
+        assert result is not None
+        assert result.mean > 75.0, (
+            f"Expected late-afternoon peak (~78°F), got {result.mean:.1f}°F — "
+            "00Z next day (6PM MDT local) was incorrectly excluded"
+        )

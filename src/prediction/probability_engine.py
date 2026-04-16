@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from datetime import date
 
 from scipy import stats
 
@@ -9,6 +10,16 @@ from src.data.models import EnsembleForecast, MOSForecast
 from src.config.stations import Station
 
 CLIMATOLOGICAL_STD = 4.0  # fallback when no ensemble data available
+
+# Monthly average high temperatures (°F) — NOAA 30-year normals (approximate)
+CLIMO_MONTHLY_HIGH: dict[str, list[float]] = {
+    "KNYC": [39, 42, 50, 62, 72, 81, 85, 84, 76, 65, 54, 43],
+    "KORD": [31, 35, 46, 59, 70, 80, 84, 82, 75, 62, 48, 35],
+    "KLAX": [68, 68, 69, 71, 72, 75, 81, 82, 81, 77, 72, 67],
+    "KDEN": [45, 48, 55, 62, 71, 82, 90, 88, 79, 66, 53, 44],
+    "KMIA": [76, 78, 80, 83, 87, 89, 91, 91, 89, 86, 82, 78],
+}
+CLIMO_MONTHLY_STD = 8.0  # typical monthly Tmax variability
 
 # Minimum spread floor based on NWP Tmax forecast skill.
 # Ensemble spread at a single valid time measures inter-model disagreement
@@ -38,12 +49,18 @@ class ProbabilityEngine:
         gfs_ensemble: EnsembleForecast | None,
         ecmwf_ensemble: EnsembleForecast | None,
         station: Station,
+        valid_date: date | None = None,
     ) -> stats.rv_continuous:
         """Build a normal distribution anchored on MOS with ensemble-derived spread.
 
         Centre = MOS high_f + station lapse rate correction.
         Spread = weighted combination of ensemble stds, floored at min_spread
         to prevent overconfident distributions from narrow ensemble agreement.
+
+        Climatological sanity check: when the forecast centre deviates far
+        from NOAA 30-year monthly normals, the spread is widened to reflect
+        additional uncertainty.  This prevents the model from being
+        overconfident on extreme outlier forecasts (e.g. 88°F in April NYC).
         """
         center = mos.high_f + station.lapse_rate_correction_f
 
@@ -69,6 +86,16 @@ class ProbabilityEngine:
         # Floor: ensemble spread at one hour underestimates Tmax uncertainty
         combined_std = max(combined_std, self.min_spread)
 
+        # Climatological sanity check — widen spread for outlier forecasts
+        if valid_date is not None and station.station_id in CLIMO_MONTHLY_HIGH:
+            month_idx = valid_date.month - 1  # 0-indexed
+            climo_normal = CLIMO_MONTHLY_HIGH[station.station_id][month_idx]
+            deviation = abs(center - climo_normal)
+            if deviation > 2 * CLIMO_MONTHLY_STD:
+                combined_std *= 1.5
+            elif deviation > 1.5 * CLIMO_MONTHLY_STD:
+                combined_std *= 1.25
+
         return stats.norm(loc=center, scale=combined_std)
 
     def compute_bucket_probability(
@@ -76,13 +103,17 @@ class ProbabilityEngine:
         distribution: stats.rv_continuous,
         bucket_low: float,
         bucket_high: float,
-        prob_floor: float = 0.005,
-        prob_ceil: float = 0.995,
+        prob_floor: float = 0.0005,
+        prob_ceil: float = 0.9995,
     ) -> float:
         """P(bucket_low <= T < bucket_high) via CDF difference.
 
         Clamps to [prob_floor, prob_ceil] to prevent overconfident 0%/100%
         predictions that create phantom edges against any market price.
+
+        The floor was 0.005 (0.5%), which inflated far-tail buckets by up
+        to 500x (true prob 0.001% → 0.5%).  Reduced to 0.05% to stay above
+        numerical noise while not materially distorting tail probabilities.
         """
         raw = float(distribution.cdf(bucket_high) - distribution.cdf(bucket_low))
         return max(prob_floor, min(prob_ceil, raw))

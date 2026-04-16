@@ -59,6 +59,39 @@ footer {
   background: currentColor;
 }
 
+/* Bot Status Bar */
+.bot-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  margin-top: 0.5rem;
+}
+
+.bot-status.alive {
+  background: #0d2818;
+  color: #4caf50;
+}
+
+.bot-status.unhealthy {
+  background: #2d1111;
+  color: #f44336;
+}
+
+.bot-status .status-item {
+  color: #aaa;
+}
+
+.bot-status .status-item.stale {
+  color: #ff9800;
+}
+
+.bot-status .status-item.error {
+  color: #f44336;
+}
+
 /* Cards */
 .card {
   background: #1a1a2e;
@@ -392,4 +425,204 @@ td.negative {
 
 .schedule-desc {
   color: #888;
+}
+
+/* Status Bar - SSE badge */
+.status-badge {
+  margin-left: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+}
+
+.status-badge.connected {
+  background: #0d2818;
+  color: #4caf50;
+}
+
+.status-badge.disconnected {
+  background: #2d1111;
+  color: #f44336;
+}
+
+/* Bot Status - WS/Monitor items */
+.bot-status .status-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #666;
+  margin-right: 0.25rem;
+}
+
+.bot-status .status-value {
+  color: #aaa;
+}
+
+.bot-status .status-item.alive .status-value {
+  color: #81c784;
+}
+
+/* Exposure Card */
+.exposure-card.halted {
+  border-color: rgba(244, 67, 54, 0.6);
+}
+
+.halt-banner {
+  padding: 0.5rem 0.75rem;
+  background: rgba(244, 67, 54, 0.2);
+  border: 1px solid rgba(244, 67, 54, 0.5);
+  border-radius: 4px;
+  color: #ef9a9a;
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.metric-sub {
+  font-size: 0.85rem;
+  color: #888;
+  font-weight: 400;
+}
+
+.drawdown-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 0.75rem;
+}
+
+.drawdown-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: #4caf50;
+  transition: width 0.3s ease;
+}
+
+.drawdown-fill.drawdown-warn {
+  background: #ff9800;
+}
+
+.drawdown-fill.drawdown-danger {
+  background: #f44336;
+}
+
+/* Live Markets */
+.live-markets .station-city {
+  font-weight: 600;
+  color: #4fc3f7;
+}
+
+.flag-badge {
+  display: inline-block;
+  padding: 0.1rem 0.35rem;
+  margin: 0 0.15rem;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  background: #2a2a4a;
+  color: #aaa;
+}
+
+tr.edge-strong {
+  background: rgba(76, 175, 80, 0.12);
+}
+
+tr.edge-positive {
+  background: rgba(76, 175, 80, 0.05);
+}
+
+tr.edge-negative {
+  opacity: 0.7;
+}
+
+td.edge-strong {
+  color: #4caf50;
+  font-weight: 700;
+}
+
+td.edge-positive {
+  color: #81c784;
+  font-weight: 600;
+}
+
+td.edge-negative {
+  color: #888;
+}
+
+/* Activity Feed */
+.activity-feed {
+  max-height: 300px;
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-feed h2 {
+  flex-shrink: 0;
+}
+
+.feed-scroll {
+  flex: 1;
+  overflow-y: auto;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: #81c784;
+}
+
+.feed-empty {
+  color: #555;
+  font-style: italic;
+  padding: 1rem 0;
+}
+
+.feed-line {
+  padding: 0.1rem 0.5rem;
+  border-radius: 2px;
+}
+
+.feed-line:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.feed-line.feed-trade {
+  color: #4fc3f7;
+  font-weight: 600;
+}
+
+.feed-line.feed-win {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.feed-line.feed-loss {
+  color: #f44336;
+  font-weight: 600;
+}
+
+.feed-line.feed-pipeline {
+  color: #ce93d8;
+}
+
+.feed-line.feed-warn {
+  color: #ffb74d;
+}
+
+.feed-line.feed-ok {
+  color: #81c784;
+}
+
+/* Skip reason badge */
+.badge.skip-reason {
+  background: #2a2a4a;
+  color: #888;
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-transform: none;
+}
+
+/* Schedule badge for resolution */
+.schedule-badge.resolution_check {
+  background: #4a148c;
+  color: #ce93d8;
 }

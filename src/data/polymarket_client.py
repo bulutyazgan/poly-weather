@@ -416,6 +416,24 @@ class CLOBClient:
             logger.info("Live order placed: %s", order_id)
             return order_id
 
+    async def cancel_order(self, order_id: str) -> bool:
+        """Cancel a single order by ID. Returns True if cancelled."""
+        if self.paper_trading:
+            before = len(self.paper_orders)
+            self.paper_orders = [
+                o for o in self.paper_orders if o.get("order_id") != order_id
+            ]
+            cancelled = len(self.paper_orders) < before
+            if cancelled:
+                logger.info("Cancelled paper order %s", order_id)
+            return cancelled
+        else:
+            result = self.client.cancel(order_id=order_id)
+            cancelled = bool(result.get("canceled_orders"))
+            if cancelled:
+                logger.info("Cancelled live order %s", order_id)
+            return cancelled
+
     async def cancel_all_orders(self) -> int:
         """Cancel all outstanding orders. Returns count cancelled."""
         if self.paper_trading:

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from src.data.polymarket_client import GammaClient
+from src.trading.exposure_tracker import ExposureTracker
 from src.verification.paper_trader import PaperTrader
 
 logger = logging.getLogger(__name__)
@@ -15,9 +16,17 @@ logger = logging.getLogger(__name__)
 class ResolutionChecker:
     """Check pending paper trades for resolution and compute PnL."""
 
-    def __init__(self, gamma: GammaClient, paper_trader: PaperTrader) -> None:
+    def __init__(
+        self,
+        gamma: GammaClient,
+        paper_trader: PaperTrader,
+        exposure_tracker: ExposureTracker | None = None,
+        event_bus=None,
+    ) -> None:
         self._gamma = gamma
         self._paper_trader = paper_trader
+        self._exposure_tracker = exposure_tracker
+        self._event_bus = event_bus
 
     async def check_resolutions(self) -> dict:
         """Check all unresolved trades for market resolution.
@@ -55,7 +64,17 @@ class ResolutionChecker:
                 continue
 
             pnl = self._paper_trader.resolve(trade_id, outcome)
+            if self._exposure_tracker is not None:
+                self._exposure_tracker.record_pnl(pnl, amount_usd=trade["amount_usd"])
             resolved += 1
+            if self._event_bus:
+                self._event_bus.publish("trade_resolved", {
+                    "trade_id": trade_id,
+                    "outcome": outcome,
+                    "pnl": round(pnl, 2),
+                    "direction": trade["signal"].direction,
+                    "city": contract.city,
+                })
             logger.info(
                 "Resolved trade %s: outcome=%s, pnl=$%.2f, direction=%s, market=%s",
                 trade_id,

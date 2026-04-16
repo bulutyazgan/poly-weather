@@ -95,3 +95,25 @@ class TestSignalCache:
         assert not cache.updated.is_set()
         cache.update({"tok_2": _make_cached_signal("tok_2")})
         assert cache.updated.is_set()
+
+    def test_no_token_reverse_lookup(self):
+        """Looking up a NO token_id returns the parent YES token's cache entry."""
+        cache = SignalCache()
+        sig = _make_cached_signal("tok_yes")
+        # The helper sets no_token_id to "no_tok_yes"
+        cache.update({"tok_yes": sig})
+        result = cache.get("no_tok_yes")
+        assert result is sig
+
+    def test_no_token_reverse_lookup_cleared_on_update(self):
+        """Reverse lookup is rebuilt on each update — stale entries don't persist."""
+        cache = SignalCache()
+        sig1 = _make_cached_signal("tok_1")
+        cache.update({"tok_1": sig1})
+        assert cache.get("no_tok_1") is sig1
+
+        sig2 = _make_cached_signal("tok_2")
+        cache.update({"tok_2": sig2})
+        # Old NO token mapping is gone
+        assert cache.get("no_tok_1") is None
+        assert cache.get("no_tok_2") is sig2

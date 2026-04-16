@@ -151,7 +151,7 @@ class TestPredictionLog:
 class TestPaperTrader:
     def test_record_paper_trade(self):
         """Record a paper trade with signal + contract info."""
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         signal = _make_signal()
         contract = _make_contract()
         trade_id = trader.record_trade(signal, contract, entry_price=0.40, amount_usd=3.0)
@@ -165,7 +165,7 @@ class TestPaperTrader:
         PnL = 7.5 - 3.0 = 4.50.
         Equivalently: amount * (1/price - 1) = 3 * (2.5 - 1) = 3 * 1.5 = 4.50.
         """
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         signal = _make_signal(direction="BUY_YES")
         contract = _make_contract()
         tid = trader.record_trade(signal, contract, entry_price=0.40, amount_usd=3.0)
@@ -174,7 +174,7 @@ class TestPaperTrader:
 
     def test_resolve_trade_loss(self):
         """BUY_YES at 0.40, outcome False → loss = -$3.00."""
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         signal = _make_signal(direction="BUY_YES")
         contract = _make_contract()
         tid = trader.record_trade(signal, contract, entry_price=0.40, amount_usd=3.0)
@@ -188,7 +188,7 @@ class TestPaperTrader:
         Payout = 7.5 * 1.0 = 7.5. PnL = 7.5 - 3.0 = 4.50.
         Formula: amount * (1/(1-entry_price) - 1) = 3 * (1/0.4 - 1) = 3 * 1.5 = 4.50.
         """
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         signal = _make_signal(direction="BUY_NO")
         contract = _make_contract()
         tid = trader.record_trade(signal, contract, entry_price=0.60, amount_usd=3.0)
@@ -197,7 +197,7 @@ class TestPaperTrader:
 
     def test_resolve_buy_no_loss(self):
         """BUY_NO at 0.60, outcome True → NO loses → loss = -$3.00."""
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         signal = _make_signal(direction="BUY_NO")
         contract = _make_contract()
         tid = trader.record_trade(signal, contract, entry_price=0.60, amount_usd=3.0)
@@ -206,7 +206,7 @@ class TestPaperTrader:
 
     def test_total_pnl(self):
         """After multiple resolved trades, total_pnl sums correctly."""
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         contract = _make_contract()
 
         # Trade 1: BUY_YES at 0.40, win → +4.50
@@ -226,7 +226,7 @@ class TestPaperTrader:
 
     def test_win_rate(self):
         """3 wins out of 5 resolved → 60%."""
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         contract = _make_contract()
         outcomes = [True, False, True, True, False]  # 3 wins for BUY_YES
         for outcome in outcomes:
@@ -236,7 +236,7 @@ class TestPaperTrader:
 
     def test_counterfactual_tracking(self):
         """For SKIP signals, track what would have happened."""
-        trader = PaperTrader()
+        trader = PaperTrader(taker_fee_rate=0.0)
         skip_signal = _make_signal(action="SKIP", direction="BUY_YES")
         contract = _make_contract()
         trader.record_counterfactual(skip_signal, contract, hypothetical_price=0.40, hypothetical_size=3.0)
@@ -248,6 +248,91 @@ class TestPaperTrader:
         trader.resolve_counterfactual(0, outcome=True)
         cf = trader.get_counterfactuals()[0]
         assert cf["pnl"] == pytest.approx(4.50)
+
+
+class TestPaperTraderFees:
+    """Tests for taker fee deduction in PaperTrader P&L."""
+
+    def test_fee_reduces_win_pnl_buy_yes(self):
+        """BUY_YES at 0.40, win with 2% fee.
+
+        Gross PnL = 3 * (1/0.40 - 1) = 4.50
+        Shares = 3.0 / 0.40 = 7.5
+        Fee = 0.02 * min(0.40, 0.60) * 7.5 = 0.02 * 0.40 * 7.5 = 0.06
+        Net PnL = 4.50 - 0.06 = 4.44
+        """
+        trader = PaperTrader(taker_fee_rate=0.02)
+        signal = _make_signal(direction="BUY_YES")
+        contract = _make_contract()
+        tid = trader.record_trade(signal, contract, entry_price=0.40, amount_usd=3.0)
+        pnl = trader.resolve(tid, outcome=True)
+        assert pnl == pytest.approx(4.44)
+
+    def test_fee_increases_loss_buy_yes(self):
+        """BUY_YES at 0.40, loss with 2% fee.
+
+        Gross PnL = -3.00
+        Fee = 0.06 (same as above)
+        Net PnL = -3.00 - 0.06 = -3.06
+        """
+        trader = PaperTrader(taker_fee_rate=0.02)
+        signal = _make_signal(direction="BUY_YES")
+        contract = _make_contract()
+        tid = trader.record_trade(signal, contract, entry_price=0.40, amount_usd=3.0)
+        pnl = trader.resolve(tid, outcome=False)
+        assert pnl == pytest.approx(-3.06)
+
+    def test_fee_reduces_win_pnl_buy_no(self):
+        """BUY_NO at YES_price=0.60, win (outcome=False) with 2% fee.
+
+        NO price = 1 - 0.60 = 0.40
+        Gross PnL = 3 * (1/0.40 - 1) = 4.50
+        Shares = 3.0 / 0.40 = 7.5
+        Fee = 0.02 * min(0.40, 0.60) * 7.5 = 0.06
+        Net PnL = 4.50 - 0.06 = 4.44
+        """
+        trader = PaperTrader(taker_fee_rate=0.02)
+        signal = _make_signal(direction="BUY_NO")
+        contract = _make_contract()
+        tid = trader.record_trade(signal, contract, entry_price=0.60, amount_usd=3.0)
+        pnl = trader.resolve(tid, outcome=False)
+        assert pnl == pytest.approx(4.44)
+
+    def test_fee_on_counterfactual(self):
+        """Counterfactual P&L also deducts fees."""
+        trader = PaperTrader(taker_fee_rate=0.02)
+        skip_signal = _make_signal(action="SKIP", direction="BUY_YES")
+        contract = _make_contract()
+        trader.record_counterfactual(skip_signal, contract, hypothetical_price=0.40, hypothetical_size=3.0)
+        trader.resolve_counterfactual(0, outcome=True)
+        cf = trader.get_counterfactuals()[0]
+        # Same as test_fee_reduces_win_pnl_buy_yes: 4.50 - 0.06 = 4.44
+        assert cf["pnl"] == pytest.approx(4.44)
+
+    def test_total_pnl_includes_fees(self):
+        """Total P&L reflects fee-adjusted results."""
+        trader = PaperTrader(taker_fee_rate=0.02)
+        contract = _make_contract()
+
+        # Win: gross 4.50, fee 0.06, net 4.44
+        tid1 = trader.record_trade(_make_signal(direction="BUY_YES"), contract, 0.40, 3.0)
+        trader.resolve(tid1, outcome=True)
+
+        # Loss: gross -2.00, fee = 0.02 * min(0.50, 0.50) * (2/0.50) = 0.02 * 0.50 * 4 = 0.04
+        tid2 = trader.record_trade(_make_signal(direction="BUY_YES"), contract, 0.50, 2.0)
+        trader.resolve(tid2, outcome=False)
+
+        expected = 4.44 + (-2.0 - 0.04)
+        assert trader.total_pnl() == pytest.approx(expected)
+
+    def test_zero_fee_matches_legacy(self):
+        """taker_fee_rate=0 matches pre-fee behavior exactly."""
+        trader = PaperTrader(taker_fee_rate=0.0)
+        signal = _make_signal(direction="BUY_YES")
+        contract = _make_contract()
+        tid = trader.record_trade(signal, contract, entry_price=0.40, amount_usd=3.0)
+        pnl = trader.resolve(tid, outcome=True)
+        assert pnl == pytest.approx(4.50)
 
 
 # ── HypothesisTester tests ───────────────────────────────────────────────────

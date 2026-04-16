@@ -8,23 +8,49 @@ from scipy.stats import percentileofscore
 
 from src.data.models import RegimeClassification
 
-# Default spread thresholds when no history is provided
-_DEFAULT_LOW_THRESHOLD = 1.5   # spreads below this → ~30th pctile
-_DEFAULT_HIGH_THRESHOLD = 3.0  # spreads above this → ~60th pctile
+# Default spread thresholds when no history is provided.
+# Typical NWP Tmax ensemble spread (0.4×GFS_std + 0.6×ECMWF_std) at
+# T+24–48h is 2–3°F for benign weather.  The old threshold of 1.5°F
+# put nearly everything into MEDIUM (edge threshold 0.12), blocking
+# many genuine opportunities.  3.0°F captures the normal spread range
+# as HIGH confidence while still flagging genuinely uncertain forecasts.
+_DEFAULT_LOW_THRESHOLD = 3.0   # spreads below this → HIGH (~30th pctile)
+_DEFAULT_HIGH_THRESHOLD = 5.0  # spreads above this → LOW (~60th pctile)
+
+
+_MIN_BIMODAL_GAP_F = 3.0  # minimum gap (°F) to qualify as bimodal
 
 
 def _is_bimodal(members: list[float]) -> bool:
-    """Simple bimodality test: check if largest gap in sorted members exceeds
-    1.5 times the median gap, indicating two separated clusters."""
+    """Bimodality test: check if largest gap in sorted members indicates
+    two genuinely separated clusters.
+
+    Open-Meteo returns temperatures quantized to ~0.2°F steps, so most
+    adjacent members share identical values (median_gap ≈ 0).  The old
+    ratio-only test (max_gap > 1.5 × median_gap) was trivially true for
+    any non-degenerate ensemble, producing false bimodal flags on tightly
+    clustered data.
+
+    Guards:
+      1. Absolute minimum gap — a real weather bimodality (chinook vs
+         no-chinook, sea-breeze vs inland) produces 5-15°F splits, not
+         sub-degree noise.  3°F is a conservative lower bound.
+      2. Relative gap — max gap must exceed 1.5× the median gap (catches
+         cases where gaps are uniformly large rather than one outlier).
+      3. Std guard — max gap must also exceed the overall member std,
+         ensuring the gap is large relative to the spread.
+    """
     if len(members) < 6:
         return False
     s = sorted(members)
     gaps = [s[i + 1] - s[i] for i in range(len(s) - 1)]
     if not gaps:
         return False
-    median_gap = float(np.median(gaps))
     max_gap = max(gaps)
-    # Also check that max gap exceeds 2x overall std as an absolute guard
+    # Absolute floor: sub-3°F gaps are quantization noise, not real bimodality
+    if max_gap < _MIN_BIMODAL_GAP_F:
+        return False
+    median_gap = float(np.median(gaps))
     overall_std = float(np.std(s, ddof=1))
     if overall_std <= 0:
         return False
@@ -68,6 +94,7 @@ class RegimeClassifier:
         cloud_cover_trend: float = 0.0,
         ensemble_members: list[float] | None = None,
         station_flags: list[str] | None = None,
+        between_model_spread: float = 0.0,
     ) -> RegimeClassification:
         station_flags = station_flags or []
         active_flags: list[str] = []
@@ -130,11 +157,31 @@ class RegimeClassifier:
         else:
             confidence = "LOW"
 
+        # --- Between-model disagreement downgrade ---
+        # NWP Tmax RMSE is 2-4°F.  GFS and ECMWF routinely disagree by
+        # 4-7°F, especially at coastal/complex-terrain sites.  Only
+        # downgrade by one step (HIGH→MEDIUM) for moderate disagreement;
+        # MEDIUM stays MEDIUM because the higher edge threshold (0.12)
+        # already provides protection and the ensemble spread already
+        # accounts for within-model uncertainty.  Only force LOW for
+        # severe disagreement (>8°F) where one model is clearly wrong.
+        if between_model_spread > 8.0:
+            confidence = "LOW"
+            if "model_disagreement" not in active_flags:
+                active_flags.append("model_disagreement")
+        elif between_model_spread > 4.0:
+            if confidence == "HIGH":
+                confidence = "MEDIUM"
+            if "model_disagreement" not in active_flags:
+                active_flags.append("model_disagreement")
+
         # --- Confidence score ---
         base_score = 1.0 - (spread_pct / 100.0)
         if low_flags:
             base_score = min(base_score, 0.3)
-        if high_override_flags and not low_flags:
+        if "model_disagreement" in active_flags:
+            base_score = min(base_score, 0.3)
+        if high_override_flags and not low_flags and "model_disagreement" not in active_flags:
             base_score = max(base_score, 0.8)
         confidence_score = max(0.0, min(1.0, base_score))
 
