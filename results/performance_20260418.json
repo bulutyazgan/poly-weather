@@ -1,0 +1,132 @@
+{
+  "evaluation_date": "2026-04-18",
+  "source_run": "e2e_run_20260416_112406_v3_diversified.json",
+  "total_trades": 9,
+  "resolved_trades": 5,
+  "pending_trades": 4,
+  "resolved_results": {
+    "wins": 4,
+    "losses": 1,
+    "win_rate": 0.80,
+    "total_pnl_per_share": 0.832
+  },
+  "resolved_detail": [
+    {
+      "city": "NYC",
+      "resolution_date": "2026-04-17",
+      "actual_outcome": "77°F or below",
+      "bucket": "-inf-77.5°F",
+      "direction": "BUY_YES",
+      "edge": 0.0943,
+      "model_prob": 0.3697,
+      "market_prob": 0.26,
+      "entry_cost": 0.2754,
+      "pnl": 0.7246,
+      "result": "WIN"
+    },
+    {
+      "city": "NYC",
+      "resolution_date": "2026-04-17",
+      "actual_outcome": "77°F or below",
+      "bucket": "77.5-79.5°F",
+      "direction": "BUY_NO",
+      "edge": 0.2385,
+      "model_prob": 0.1241,
+      "market_prob": 0.375,
+      "entry_cost": 0.6374,
+      "pnl": 0.3626,
+      "result": "WIN"
+    },
+    {
+      "city": "NYC",
+      "resolution_date": "2026-04-17",
+      "actual_outcome": "77°F or below",
+      "bucket": "79.5-81.5°F",
+      "direction": "BUY_NO",
+      "edge": 0.0909,
+      "model_prob": 0.1247,
+      "market_prob": 0.225,
+      "entry_cost": 0.7844,
+      "pnl": 0.2156,
+      "result": "WIN"
+    },
+    {
+      "city": "Chicago",
+      "resolution_date": "2026-04-17",
+      "actual_outcome": "80-81°F",
+      "bucket": "79.5-81.5°F",
+      "direction": "BUY_NO",
+      "edge": 0.1336,
+      "model_prob": 0.1898,
+      "market_prob": 0.335,
+      "entry_cost": 0.6766,
+      "pnl": -0.6766,
+      "result": "LOSS"
+    },
+    {
+      "city": "Chicago",
+      "resolution_date": "2026-04-17",
+      "actual_outcome": "80-81°F",
+      "bucket": "81.5-83.5°F",
+      "direction": "BUY_NO",
+      "edge": 0.0756,
+      "model_prob": 0.1302,
+      "market_prob": 0.220,
+      "entry_cost": 0.7942,
+      "pnl": 0.2058,
+      "result": "WIN"
+    }
+  ],
+  "pending_detail": [
+    {
+      "city": "Chicago",
+      "resolution_date": "2026-04-18",
+      "bucket": "65.5-67.5°F",
+      "direction": "BUY_NO",
+      "edge": 0.0734,
+      "model_prob": 0.1716,
+      "market_prob": 0.275,
+      "current_bucket_leader": "62-63°F at 83¢",
+      "likely_outcome": "WIN"
+    },
+    {
+      "city": "Miami",
+      "resolution_date": "2026-04-18",
+      "bucket": "81.5-83.5°F",
+      "direction": "BUY_YES",
+      "edge": 0.1126,
+      "model_prob": 0.3064,
+      "market_prob": 0.185,
+      "current_bucket_price": 0.065,
+      "likely_outcome": "LOSS"
+    },
+    {
+      "city": "Miami",
+      "resolution_date": "2026-04-18",
+      "bucket": "83.5-85.5°F",
+      "direction": "BUY_NO",
+      "edge": 0.2035,
+      "model_prob": 0.1983,
+      "market_prob": 0.425,
+      "current_bucket_price": 0.495,
+      "likely_outcome": "UNCERTAIN"
+    },
+    {
+      "city": "Miami",
+      "resolution_date": "2026-04-18",
+      "bucket": "85.5-87.5°F",
+      "direction": "BUY_NO",
+      "edge": 0.2143,
+      "model_prob": 0.0699,
+      "market_prob": 0.295,
+      "current_bucket_price": 0.34,
+      "likely_outcome": "LIKELY_WIN"
+    }
+  ],
+  "analysis": {
+    "model_bias": "Model MOS high (79.79°F NYC, 78.86°F Chicago) overshot for NYC (actual ≤77) and undershot for Chicago (actual 80-81). GFS was more accurate for both cities, but n=2 is insufficient to justify reweighting.",
+    "edge_quality": "NYC edges were genuine — model correctly identified market underpricing of the cooler outcome. Chicago 80-81 loss is within normal variance for a MEDIUM-confidence trade.",
+    "miami_concern": "Miami BUY_YES 82-83 trade (model_prob=0.306 vs current 6.5¢) suggests model may underestimate Miami warm bias, but needs more data to confirm.",
+    "action": "No code changes warranted. Single-run results insufficient to justify MOS reweighting. Continue collecting resolution data to build statistical significance."
+  }
+}

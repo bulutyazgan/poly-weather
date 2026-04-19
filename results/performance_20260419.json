@@ -1,0 +1,35 @@
+{
+  "evaluation_date": "2026-04-19",
+  "resolved_markets": {
+    "NYC_2026-04-17": "77°F or below (≤77°F)",
+    "NYC_2026-04-18": "60-61°F",
+    "NYC_2026-04-19": "pending (52-53 leading at 56.5¢)",
+    "Chicago_2026-04-17": "80-81°F",
+    "Chicago_2026-04-18": "62-63°F",
+    "Denver_2026-04-18": "56-57°F",
+    "Denver_2026-04-19": "pending (70-71 leading at 45¢)",
+    "Miami_2026-04-18": "84-85°F",
+    "Miami_2026-04-19": "pending (84-85 at 44.5¢, 86-87 at 42¢)"
+  },
+  "cumulative": {
+    "resolved": 15,
+    "wins": 10,
+    "losses": 5,
+    "pending": 7,
+    "win_rate": 0.667,
+    "total_pnl_per_share": 0.738
+  },
+  "run1_final": {
+    "wins": 6,
+    "losses": 3,
+    "win_rate": 0.667,
+    "pnl": 0.569
+  },
+  "run2_partial": {
+    "wins": 4,
+    "losses": 2,
+    "pending": 7,
+    "win_rate_so_far": 0.667,
+    "pnl_so_far": 0.168
+  }
+}
