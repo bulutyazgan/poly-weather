@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     KELLY_FRACTION: float = 0.04
     MIN_TRADE_USD: float = 0.25
     MAX_TRADE_USD: float = 1.50
-    MAX_BANKROLL_PCT: float = 0.01
+    MAX_BANKROLL_PCT: float = 0.03
     MAX_PORTFOLIO_EXPOSURE: float = 0.35
     MAX_DRAWDOWN_PCT: float = 0.15
     HIGH_REGIME_EDGE_THRESHOLD: float = 0.05
